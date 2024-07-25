@@ -1,4 +1,4 @@
-# SPDX-License-Identifier:  GPL-3.0-or-later
+# SPDX-License-Identifier:  MPL-2.0
 import unittest
 from os.path import exists
 from urllib.request import urlopen
@@ -15,9 +15,11 @@ class ResolverTest(unittest.TestCase):
 
     def test_resolver(self):
         with urlopen(TEST_URL) as fp:
-            self.assertTrue(hasattr(fp, 'file'))
-            self.assertTrue(hasattr(fp.file, 'name'))
-            self.assertTrue(exists(fp.file.name), f"resolver did not cache '{TEST_URL}' to '{fp.file.name}'")
+            self.assertTrue(hasattr(fp, "file"))
+            self.assertTrue(hasattr(fp.file, "name"))
+            self.assertTrue(
+                exists(fp.file.name), f"resolver did not cache '{TEST_URL}' to '{fp.file.name}'"
+            )
 
 
 if __name__ == "__main__":
