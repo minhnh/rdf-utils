@@ -2,7 +2,7 @@
 import unittest
 from urllib.request import urlopen
 import pyshacl
-from rdflib import ConjunctiveGraph, URIRef
+from rdflib import ConjunctiveGraph
 from rdf_utils.uri import URL_MM_PYTHON_JSON, URL_MM_PYTHON_SHACL, URL_SECORO_M
 from rdf_utils.resolver import install_resolver
 from rdf_utils.python import import_attr_from_node
@@ -46,7 +46,7 @@ class PythonTest(unittest.TestCase):
         )
         self.assertTrue(conforms, f"SHACL validation failed:\n{report_text}")
 
-        os_path_exists = import_attr_from_node(graph, URIRef(URI_OS_PATH_EXISTS))
+        os_path_exists = import_attr_from_node(graph, URI_OS_PATH_EXISTS)
         self.assertTrue(os_path_exists(self.mm_python_shacl_path))
 
 
