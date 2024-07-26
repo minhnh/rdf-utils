@@ -1,5 +1,5 @@
-# Inspired by https://github.com/comp-rob2b/kindyngen/ (kindyngen.utility.resolver)
 # SPDX-License-Identifier: MPL-2.0
+# Inspired by https://github.com/comp-rob2b/kindyngen/ (kindyngen.utility.resolver)
 from socket import _GLOBAL_DEFAULT_TIMEOUT
 from typing import Optional
 from os.path import join
