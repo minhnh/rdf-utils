@@ -1,10 +1,9 @@
 # SPDX-License-Identifier:  MPL-2.0
 from importlib import import_module
-from rdflib import Namespace, Graph, URIRef
-from rdf_utils.uri import URI_MM_PYTHON
+from rdflib import Graph, URIRef
+from rdf_utils.namespace import NS_MM_PYTHON
 
 
-NS_MM_PYTHON = Namespace(URI_MM_PYTHON)
 MM_PY_MODULE_NAME = NS_MM_PYTHON["module-name"]
 MM_PY_ATTR_NAME = NS_MM_PYTHON["attribute-name"]
 
