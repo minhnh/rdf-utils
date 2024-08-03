@@ -36,4 +36,3 @@ def get_valid_filename(name: str) -> str:
 
 def get_valid_var_name(name: str) -> str:
     return get_valid_name(name, __VAR_NAME_REPLACEMENTS)
-

@@ -12,3 +12,4 @@ URL_MM_PYTHON_SHACL = f"{URL_SECORO_MM}/languages/python.shacl.ttl"
 URL_MM_PYTHON_JSON = f"{URL_SECORO_MM}/languages/python.json"
 
 URI_MM_PYTHON = f"{URL_SECORO_MM}/languages/python#"
+URI_MM_ENV = f"{URL_SECORO_MM}/environment#"

@@ -6,11 +6,11 @@ import pathlib
 from rdf_utils.naming import get_valid_var_name, get_valid_filename
 
 
-TEST_DIR = join(user_cache_dir(), 'rdf-libs', 'tests')
+TEST_DIR = join(user_cache_dir(), "rdf-libs", "tests")
 TEST_STRINGS = ["with space", "with : colons", "with !. *? more special chars"]
 
 
-class ResolverTest(unittest.TestCase):
+class NamingTest(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
         test_dir_path = pathlib.Path(TEST_DIR)
@@ -25,4 +25,7 @@ class ResolverTest(unittest.TestCase):
     def test_var_naming(self) -> None:
         for name in TEST_STRINGS:
             val_name = get_valid_var_name(name)
-            self.assertTrue(val_name.isidentifier(), f"invalid identifier after converting '{name}' into '{val_name}'")
+            self.assertTrue(
+                val_name.isidentifier(),
+                f"invalid identifier after converting '{name}' into '{val_name}'",
+            )
