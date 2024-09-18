@@ -2,10 +2,11 @@
 import unittest
 from urllib.request import urlopen
 import pyshacl
-from rdflib import ConjunctiveGraph
+from rdflib import ConjunctiveGraph, URIRef
+from rdf_utils.models import ModelBase, ModelLoader
 from rdf_utils.uri import URL_MM_PYTHON_JSON, URL_MM_PYTHON_SHACL, URL_SECORO_M
 from rdf_utils.resolver import install_resolver
-from rdf_utils.python import import_attr_from_node
+from rdf_utils.python import import_attr_from_model, import_attr_from_node, load_py_module_attr
 
 
 TEST_URL = f"{URL_SECORO_M}/models/tests"
@@ -31,6 +32,9 @@ class PythonTest(unittest.TestCase):
         with urlopen(URL_MM_PYTHON_SHACL) as fp:
             self.mm_python_shacl_path = fp.file.name
 
+        self.model_loader = ModelLoader()
+        self.model_loader.register(load_py_module_attr)
+
     def test_python_import(self):
         graph = ConjunctiveGraph()
         graph.parse(data=PYTHON_MODEL, format="json-ld")
@@ -47,6 +51,11 @@ class PythonTest(unittest.TestCase):
         self.assertTrue(conforms, f"SHACL validation failed:\n{report_text}")
 
         os_path_exists = import_attr_from_node(graph, URI_OS_PATH_EXISTS)
+        self.assertTrue(os_path_exists(self.mm_python_shacl_path))
+
+        os_model = ModelBase(graph=graph, node_id=URIRef(URI_OS_PATH_EXISTS))
+        self.model_loader.load_attributes(graph=graph, model=os_model)
+        os_path_exists = import_attr_from_model(os_model)
         self.assertTrue(os_path_exists(self.mm_python_shacl_path))
 
 
