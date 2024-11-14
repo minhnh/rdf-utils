@@ -19,7 +19,7 @@ classifiers = [
     "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
 ]
 dependencies = [
-  'rdflib',
+  'rdflib>=7.1.0',
   'pyshacl',
   'platformdirs',
 ]

@@ -14,7 +14,7 @@ from rdf_utils.models.event_loop import (
 )
 
 
-URI_TEST_EL = f"{URL_SECORO_M}/models/tests/el"
+URI_TEST_EL = f"{URL_SECORO_M}/tests/el"
 URI_TEST_LOOP = f"{URI_TEST_EL}/test-loop"
 URIREF_TEST_LOOP = URIRef(URI_TEST_LOOP)
 
