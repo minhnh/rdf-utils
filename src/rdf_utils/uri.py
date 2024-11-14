@@ -1,4 +1,9 @@
 # SPDX-License-Identifier:  MPL-2.0
+from typing import Optional
+from rdflib import URIRef
+from rdflib.namespace import NamespaceManager
+
+
 URL_COMP_ROB2B = "https://comp-rob2b.github.io"
 URL_SECORO = "https://secorolab.github.io"
 URL_SECORO_MM = f"{URL_SECORO}/metamodels"
@@ -19,3 +24,26 @@ URI_MM_TIME = f"{URL_SECORO_MM}/time#"
 URI_MM_EL = f"{URL_SECORO_MM}/behaviour/event_loop#"
 URL_MM_EL_JSON = f"{URL_SECORO_MM}/behaviour/event_loop.json"
 URL_MM_EL_SHACL = f"{URL_SECORO_MM}/behaviour/event_loop.shacl.ttl"
+
+
+def try_expand_curie(
+    ns_manager: NamespaceManager, curie_str: str, quiet: bool = False
+) -> Optional[URIRef]:
+    """!Execute rdflib `expand_curie` with exception handling
+
+    @param ns_manager NamespaceManager object, usually can use the one in the Graph object
+    @param curie_str the short URI string to be expanded
+    @param quiet if False will raise ValueError, else return None
+    @return expanded URIRef or None
+    @exception ValueError
+    """
+    try:
+        uri = ns_manager.expand_curie(curie_str)
+
+    except ValueError as e:
+        if quiet:
+            return None
+
+        raise ValueError(f"failed to expand '{curie_str}': {e}")
+
+    return uri

@@ -9,7 +9,7 @@ import urllib.request
 import urllib.response
 from email.message import EmailMessage
 from rdf_utils.uri import URL_SECORO, URL_COMP_ROB2B
-from rdf_utils import RDF_UTILS_VERSION
+from rdf_utils import __version__
 
 
 __PKG_CACHE_ROOT = join(platformdirs.user_cache_dir(), "rdf-utils")
@@ -37,7 +37,7 @@ class IriToFileResolver(urllib.request.OpenerDirector):
     def open(self, fullurl, data=None, timeout=_GLOBAL_DEFAULT_TIMEOUT):
         if isinstance(fullurl, str):
             url_req = urllib.request.Request(fullurl)
-            url_req.add_header("User-Agent", f"rdf-utils/{RDF_UTILS_VERSION}")
+            url_req.add_header("User-Agent", f"rdf-utils/{__version__}")
         elif isinstance(fullurl, urllib.request.Request):
             url_req = fullurl
         else:

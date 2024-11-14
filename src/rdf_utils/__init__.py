@@ -1,3 +1,5 @@
+# SPDX-License-Identifier:  MPL-2.0
 from importlib.metadata import version
 
-RDF_UTILS_VERSION = version("rdf-utils")
+
+__version__ = version("rdf-utils")
