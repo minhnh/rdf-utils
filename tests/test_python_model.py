@@ -57,7 +57,7 @@ class PythonTest(unittest.TestCase):
         os_path_exists = import_attr_from_node(graph, URI_OS_PATH_EXISTS)
         self.assertTrue(os_path_exists(self.mm_python_shacl_path))
 
-        os_model = ModelBase(graph=graph, node_id=URIRef(URI_OS_PATH_EXISTS))
+        os_model = ModelBase(node_id=URIRef(URI_OS_PATH_EXISTS), graph=graph)
         self.model_loader.load_attributes(graph=graph, model=os_model)
         os_path_exists = import_attr_from_model(os_model)
         self.assertTrue(os_path_exists(self.mm_python_shacl_path))

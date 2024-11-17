@@ -109,7 +109,7 @@ class EventLoopModelTest(unittest.TestCase):
             check_shacl_constraints(graph=graph, shacl_dict={URL_MM_EL_SHACL: "turtle"})
         )
 
-        _ = EventLoopModel(graph=graph, el_id=URIREF_TEST_LOOP)
+        _ = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=graph)
 
     def test_wrong_reactions(self):
         wrong_evt_g = Graph()
@@ -117,11 +117,11 @@ class EventLoopModelTest(unittest.TestCase):
         with self.assertRaises(
             AssertionError, msg="not raised for reaction to an event not in loop"
         ):
-            _ = EventLoopModel(graph=wrong_evt_g, el_id=URIREF_TEST_LOOP)
+            _ = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=wrong_evt_g)
         wrong_flg_g = Graph()
         wrong_flg_g.parse(data=EVT_LOOP_MODEL_WRONG_FLG, format="json-ld")
         with self.assertRaises(AssertionError, msg="not raised for reaction to a flag not in loop"):
-            _ = EventLoopModel(graph=wrong_flg_g, el_id=URIREF_TEST_LOOP)
+            _ = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=wrong_flg_g)
 
 
 if __name__ == "__main__":
