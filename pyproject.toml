@@ -28,6 +28,15 @@ distrib = [
   "numpy",
   "scipy",
 ]
+docs = [
+  "pathlib",                      # API generation script
+  "mkdocs-material",              # material theme
+  "mkdocs-awesome-pages-plugin",  # allow short hands for loading all markdowns
+  "mkdocstrings[python]",         # render API pages for Python
+  "mkdocs-literate-nav",          # summary API page
+  "mkdocs-gen-files",             # generate API files
+  "mkdocs-section-index",         # generate index for API
+]
 [project.urls]
 "Homepage" = "https://github.com/minhnh/rdf-utils"
 
