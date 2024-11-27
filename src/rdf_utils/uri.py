@@ -33,13 +33,18 @@ URL_MM_DISTRIB_SHACL = f"{URL_SECORO_MM}/probability/distribution.shacl.ttl"
 def try_expand_curie(
     ns_manager: NamespaceManager, curie_str: str, quiet: bool = False
 ) -> Optional[URIRef]:
-    """!Execute rdflib `expand_curie` with exception handling
+    """Execute rdflib `expand_curie` with exception handling
 
-    @param ns_manager NamespaceManager object, usually can use the one in the Graph object
-    @param curie_str the short URI string to be expanded
-    @param quiet if False will raise ValueError, else return None
-    @return expanded URIRef or None
-    @exception ValueError
+    Parameters:
+        ns_manager: NamespaceManager object, usually can use the one in the Graph object
+        curie_str: The short URI string to be expanded
+        quiet: If False will raise ValueError, else return None
+
+    Returns:
+        Expanded URIRef or None
+
+    Raises:
+        ValueError: When not `quiet` and URI cannot be expanded using the given `ns_manager`
     """
     try:
         uri = ns_manager.expand_curie(curie_str)

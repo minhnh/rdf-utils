@@ -50,17 +50,15 @@ plugins:
       default_handler: python
       handlers:
         python:
-          # cross-ref to other projects
           import:
           - https://docs.python.org/3/objects.inv
           - https://rdflib.readthedocs.io/en/stable/objects.inv
           paths: [src]
           options:
-            # see full list of options at https://mkdocstrings.github.io/python/usage/
             docstring_options:
               ignore_init_summary: true
-            docstring_section_style: list
             merge_init_into_class: true
+            docstring_section_style: list
             separate_signature: true
             heading_level: 1
             summary: true

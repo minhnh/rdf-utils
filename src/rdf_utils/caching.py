@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
+"""Utilites for caching file contents"""
 from socket import _GLOBAL_DEFAULT_TIMEOUT
 import urllib.request
 
@@ -10,8 +11,9 @@ __URL_CONTENT_CACHE = {}
 def read_file_and_cache(filepath: str) -> str:
     """Read and cache string contents of files for quick access and reducing IO operations.
 
-    May need "forgetting" mechanism if too many large files are stored. Should be fine
-    for loading JSON metamodels and SHACL constraints in Turtle format.
+    Note:
+        May need "forgetting" mechanism if too many large files are stored. Should be fine
+        for loading JSON metamodels and SHACL constraints in Turtle format.
     """
     if filepath in __FILE_LOADER_CACHE:
         return __FILE_LOADER_CACHE[filepath]
@@ -26,11 +28,14 @@ def read_file_and_cache(filepath: str) -> str:
     return file_content
 
 
-def read_url_and_cache(url: str, timeout=_GLOBAL_DEFAULT_TIMEOUT) -> str:
+def read_url_and_cache(url: str, timeout: float = _GLOBAL_DEFAULT_TIMEOUT) -> str:
     """Read and cache text responses from URL
 
-    `timeout` specifies duration in seconds to wait for response. Only works for HTTP, HTTPS & FTP.
-    By default `socket._GLOBAL_DEFAULT_TIMEOUT` will be used, which usually means no timeout.
+    Parameters:
+        url: URL to be opened with urllib
+        timeout: duration in seconds to wait for response. Only works for HTTP, HTTPS & FTP.
+                 Default: `socket._GLOBAL_DEFAULT_TIMEOUT` will be used,
+                 which usually means no timeout.
     """
     if url in __URL_CONTENT_CACHE:
         return __URL_CONTENT_CACHE[url]

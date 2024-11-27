@@ -1,4 +1,5 @@
 # SPDX-License-Identifier:  MPL-2.0
+"""Defining namespaces used by RDF models."""
 from rdflib import Namespace
 from rdf_utils.uri import (
     URI_MM_AGN,

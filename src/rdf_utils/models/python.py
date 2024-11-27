@@ -12,17 +12,39 @@ URI_PY_PRED_ATTR_NAME = NS_MM_PYTHON["attribute-name"]
 
 
 def import_attr_from_node(graph: Graph, uri: URIRef | str) -> Any:
+    """Import a Python module's attribute from an RDF graph using importlib
+
+    Parameters:
+        graph: RDF graph to load relevant info
+        uri: URI of the `ModuleAttribute` node
+
+    Returns:
+        The module attribute, e.g. class or function
+    """
     if isinstance(uri, str):
         uri = URIRef(uri)
 
     module_name = str(graph.value(uri, URI_PY_PRED_MODULE_NAME))
     attr_name = str(graph.value(uri, URI_PY_PRED_ATTR_NAME))
+
     return getattr(import_module(module_name), attr_name, None)
 
 
-def load_py_module_attr(graph: Graph, model: ModelBase, **kwargs: Any) -> None:
+def load_py_module_attr(graph: Graph, model: ModelBase, quiet: bool = True) -> None:
+    """Load relevant attributes of a `ModuleAttribute` node into a model object.
+
+    Parameters:
+        graph: RDF graph to load relevant info.
+        model: The model object.
+        quiet: If True won't raise an exception
+
+    Raises:
+        RuntimeError: if not quiet and model object does not have `ModuleAttribute` type
+    """
     if URI_PY_TYPE_MODULE_ATTR not in model.types:
-        return
+        if quiet:
+            return
+        raise RuntimeError(f"load_py_module_attr: '{model.id}' is not a {URI_PY_TYPE_MODULE_ATTR}")
 
     module_name = graph.value(model.id, URI_PY_PRED_MODULE_NAME)
     assert (
@@ -38,6 +60,15 @@ def load_py_module_attr(graph: Graph, model: ModelBase, **kwargs: Any) -> None:
 
 
 def import_attr_from_model(model: ModelBase) -> Any:
+    """Import a Python module's attribute from a model object.
+    Assuming `load_py_module_attr` was already called on the object.
+
+    Parameters:
+        model: Model object containing relevant info for a `ModuleAttribute`
+
+    Returns:
+        The module attribute, e.g. class or function
+    """
     assert (
         URI_PY_TYPE_MODULE_ATTR in model.types
     ), f"model '{model.id}' doesn't have type '{URI_PY_TYPE_MODULE_ATTR}'"

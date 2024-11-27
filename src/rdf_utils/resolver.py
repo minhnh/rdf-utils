@@ -18,16 +18,17 @@ __PKG_CACHE_ROOT = join(platformdirs.user_cache_dir(), "rdf-utils")
 class IriToFileResolver(urllib.request.OpenerDirector):
     """
     A `urllib.request.OpenerDirector` that remaps specific URLs to local files.
+
+    Parameters:
+        url_map: Mapping from a prefix of a URL to a local location.
+                 For example, `{ "http://example.org/": "foo/bar/" }` would remap any
+                 urllib open request for any resource under `http://example.org/`
+                 to a local directory `foo/bar/`.
+        download: If true and the mapped local file does not exist, will attempt to download
+                  to the mapped location.
     """
 
     def __init__(self, url_map: dict, download: bool = True):
-        """
-        A key-value pair in `url_map` specifies a prefix of a URL to a local location.
-        For example, `{ "http://example.org/": "foo/bar/" }` would remap any urllib open request
-        for any resource under "http://example.org/" to a local directory "foo/bar/".
-        If the local file does not exist and `download` is True, attempt to download the file
-        to the corresponding local location.
-        """
         super().__init__()
         self.default_opener = urllib.request.build_opener()
         self.url_map = url_map
@@ -88,13 +89,20 @@ def install_resolver(
     resolver: Optional[urllib.request.OpenerDirector] = None,
     url_map: Optional[dict] = None,
     download: bool = True,
-):
-    """
-    Note that only a single opener can be globally installed in urllib.
-    Only the latest installed resolver will be active.
-    If no `resolver` is specified, the default behaviour using `IriToFileResolver` is to
-    download the requested files to the user cache directory using `platformdirs`.
-    For Linux this should be `$HOME/.cache/rdf-utils/`.
+) -> None:
+    """Implements default behaviours for resolver installation
+
+    Parameters:
+        resolver: Resolver to install. If none specified, the default behaviour
+                  (using `IriToFileResolver`) is to download the requested files to the
+                  user cache directory using `platformdirs`.
+                  For Linux this should be `$HOME/.cache/rdf-utils/`.
+        url_map: URL to local path mapping to pass to `IriToFileResolver`
+        download: Download file if true
+
+    Note:
+        Only a single opener can be globally installed in urllib.
+        Only the latest installed resolver will be active.
     """
     if resolver is None:
         if url_map is None:

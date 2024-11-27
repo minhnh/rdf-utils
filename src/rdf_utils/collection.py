@@ -52,14 +52,17 @@ def _load_list_re(
 def load_list_re(
     graph: Graph, first_node: BNode, parse_uri: bool = True, quiet: bool = True
 ) -> list[Any]:
-    """!Recursively iterate over RDF list containers for extracting lists of lists.
+    """Recursively iterate over RDF list containers for extracting lists of lists.
 
-    @param graph Graph object to extract the list(s) from
-    @param first_node First element in the list
-    @param parse_uri if True will try converting literals into URIRef
-    @param quiet if True will not throw exceptions other than loop detection
-    @exception RuntimeError Raised when a loop is detected
-    @exception ValueError Raised when `quiet` is `False` and short URI cannot be expanded
+    Parameters:
+        graph: Graph object to extract the list(s) from
+        first_node: First element in the list
+        parse_uri: if True will try converting literals into URIRef
+        quiet: if True will not throw exceptions other than loop detection
+
+    Raises:
+        RuntimeError: When a loop is detected
+        ValueError: When `quiet` is `False` and short URI cannot be expanded
     """
     node_set = set()
 

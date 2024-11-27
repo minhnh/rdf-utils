@@ -15,8 +15,14 @@ def get_valid_name(name: str, replacement_dict: dict) -> str:
 
     Remove leading and trailing spaces; convert other spaces to underscores;
     and remove anything that is not an alphanumeric, dash, underscore, or dot.
-    >>> get_valid_filename("john's portrait in 2004.jpg")
-    'johns_portrait_in_2004.jpg'
+
+    Parameters:
+        name: String name to be converted
+        replacement_dict: Maps special characters to acceptable replacements
+
+    Examples:
+        >>> get_valid_filename("john's portrait in 2004.jpg")
+        'johns_portrait_in_2004.jpg'
     """
     s = str(name).strip()
     for char in replacement_dict:
@@ -31,8 +37,10 @@ def get_valid_name(name: str, replacement_dict: dict) -> str:
 
 
 def get_valid_filename(name: str) -> str:
+    """Convert strings to valid file names. Calls `get_valid_name`"""
     return get_valid_name(name, __FILENAME_REPLACEMENTS)
 
 
 def get_valid_var_name(name: str) -> str:
+    """Convert strings to valid variable names. Calls `get_valid_name`"""
     return get_valid_name(name, __VAR_NAME_REPLACEMENTS)

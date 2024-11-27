@@ -18,6 +18,15 @@ URI_EL_PRED_HAS_FLG_REACT = NS_MM_EL["has-flg-reaction"]
 
 
 class EventReactionModel(ModelBase):
+    """Model for reactions to an event.
+
+    Attributes:
+        event_id: URI of the event to react to
+
+    Parameters:
+        reaction_id: URI of the reaction model
+        graph: RDF graph to load relevant attributes
+    """
     event_id: URIRef
 
     def __init__(self, reaction_id: URIRef, graph: Graph) -> None:
@@ -31,6 +40,15 @@ class EventReactionModel(ModelBase):
 
 
 class FlagReactionModel(ModelBase):
+    """Model for reactions to a flag.
+
+    Attributes:
+        flag_id: URI of the flag to react to
+
+    Parameters:
+        reaction_id: URI of the reaction model
+        graph: RDF graph to load relevant attributes
+    """
     flag_id: URIRef
 
     def __init__(self, reaction_id: URIRef, graph: Graph) -> None:
@@ -44,6 +62,18 @@ class FlagReactionModel(ModelBase):
 
 
 class EventLoopModel(ModelBase):
+    """Model of an event loop containing models of reactions to events and flags.
+
+    Attributes:
+        events_triggered: if true should notify that an event is triggered in the last loop
+        flag_values: value of flag in the last loop
+        event_reactions: reaction models to events
+        flag_reactions: reaction models to flags
+
+    Parameters:
+        el_id: URI of event loop
+        graph: graph for loading attributes
+    """
     events_triggered: dict[URIRef, bool]
     flag_values: dict[URIRef, bool]
     event_reactions: dict[URIRef, EventReactionModel]
