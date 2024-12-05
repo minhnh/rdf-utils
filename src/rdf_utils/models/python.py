@@ -30,7 +30,7 @@ def import_attr_from_node(graph: Graph, uri: URIRef | str) -> Any:
     return getattr(import_module(module_name), attr_name, None)
 
 
-def load_py_module_attr(graph: Graph, model: ModelBase, quiet: bool = True) -> None:
+def load_py_module_attr(graph: Graph, model: ModelBase, quiet: bool = True, **kwargs: Any) -> None:
     """Load relevant attributes of a `ModuleAttribute` node into a model object.
 
     Parameters:
