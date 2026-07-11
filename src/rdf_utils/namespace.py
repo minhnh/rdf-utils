@@ -2,32 +2,46 @@
 """Defining namespaces used by RDF models."""
 
 from rdflib import Namespace
-from rdf_utils.uri import (
-    URI_MM_AGN,
-    URI_MM_DISTRIB,
-    URI_MM_GEOM,
-    URI_MM_GEOM_REL,
-    URI_MM_GEOM_COORD,
-    URI_MM_PYTHON,
-    URI_MM_ENV,
-    URI_MM_QUDT,
-    URI_MM_QUDT_QTY,
-    URI_MM_QUDT_UNIT,
-    URI_MM_TIME,
-    URI_MM_EL,
+
+URL_SECORO = "https://secorolab.github.io"
+URL_SECORO_MM = f"{URL_SECORO}/metamodels"
+URL_SECORO_M = f"{URL_SECORO}/models"
+URL_COMP_ROB2B = "https://comp-rob2b.github.io"
+
+URL_MM_GEOM_COORD_SECO_JSON = f"{URL_SECORO_MM}/geometry/coordinates.json"
+URL_MM_GEOM_SHACL = f"{URL_SECORO_MM}/geometry/geometry.shacl.ttl"
+URL_MM_PYTHON_JSON = f"{URL_SECORO_MM}/languages/python.json"
+URL_MM_PYTHON_SHACL = f"{URL_SECORO_MM}/languages/python.shacl.ttl"
+URL_MM_EL_JSON = f"{URL_SECORO_MM}/behaviour/event_loop.json"
+URL_MM_EL_SHACL = f"{URL_SECORO_MM}/behaviour/event_loop.shacl.ttl"
+URL_MM_DISTRIB_JSON = f"{URL_SECORO_MM}/probability/distribution.json"
+URL_MM_DISTRIB_SHACL = f"{URL_SECORO_MM}/probability/distribution.shacl.ttl"
+
+URL_MM_QUDT_JSON = f"{URL_COMP_ROB2B}/metamodels/qudt.json"
+URL_MM_GEOM_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entities.json"
+URL_MM_GEOM_COORD_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates.json"
+URL_MM_GEOM_SHACL_COORD = f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates.ttl"
+URL_MM_GEOM_SHACL_OPS = f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-operators.ttl"
+URL_MM_GEOM_SHACL_REL = f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations.ttl"
+
+NS_MM_QUDT = Namespace("http://qudt.org/schema/qudt/")
+NS_MM_QUDT_QTY = Namespace("http://qudt.org/vocab/quantitykind/")
+NS_MM_QUDT_UNIT = Namespace("http://qudt.org/vocab/unit/")
+
+NS_MM_GEOM = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entities#")
+NS_MM_GEOM_REL = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations#")
+NS_MM_GEOM_COORD = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates#")
+NS_MM_KC = Namespace(f"{URL_COMP_ROB2B}/metamodels/kinematic-chain/structural-entities#")
+NS_MM_DYN_ENT = Namespace(
+    f"{URL_COMP_ROB2B}/metamodels/newtonian-rigid-body-dynamics/structural-entities#"
+)
+NS_MM_DYN_COORD = Namespace(
+    f"{URL_COMP_ROB2B}/metamodels/newtonian-rigid-body-dynamics/coordinates#"
 )
 
-NS_MM_QUDT = Namespace(URI_MM_QUDT)
-NS_MM_QUDT_QTY = Namespace(URI_MM_QUDT_QTY)
-NS_MM_QUDT_UNIT = Namespace(URI_MM_QUDT_UNIT)
-
-NS_MM_GEOM = Namespace(URI_MM_GEOM)
-NS_MM_GEOM_REL = Namespace(URI_MM_GEOM_REL)
-NS_MM_GEOM_COORD = Namespace(URI_MM_GEOM_COORD)
-
-NS_MM_PYTHON = Namespace(URI_MM_PYTHON)
-NS_MM_ENV = Namespace(URI_MM_ENV)
-NS_MM_AGN = Namespace(URI_MM_AGN)
-NS_MM_TIME = Namespace(URI_MM_TIME)
-NS_MM_EL = Namespace(URI_MM_EL)
-NS_MM_DISTRIB = Namespace(URI_MM_DISTRIB)
+NS_MM_PYTHON = Namespace(f"{URL_SECORO_MM}/languages/python#")
+NS_MM_ENV = Namespace(f"{URL_SECORO_MM}/environment#")
+NS_MM_AGN = Namespace(f"{URL_SECORO_MM}/agent#")
+NS_MM_TIME = Namespace(f"{URL_SECORO_MM}/time#")
+NS_MM_EL = Namespace(f"{URL_SECORO_MM}/behaviour/event_loop#")
+NS_MM_DISTRIB = Namespace(f"{URL_SECORO_MM}/probability/distribution#")

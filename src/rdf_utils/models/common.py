@@ -1,6 +1,7 @@
 # SPDX-License-Identifier:  MPL-2.0
 from typing import Any, Optional, Protocol
-from rdflib import URIRef, Graph, RDF
+from rdflib import URIRef, Graph, BNode, Literal, Node, RDF
+from rdflib.collection import Collection
 
 
 def get_node_types(graph: Graph, node_id: URIRef) -> set[URIRef]:
@@ -32,6 +33,7 @@ class ModelBase(object):
         graph: RDF graph for loading types if `types` is not specified
         types: the model's types
     """
+
     id: URIRef
     types: set[URIRef]
     _attributes: dict[URIRef, Any]
@@ -43,9 +45,9 @@ class ModelBase(object):
         if types is not None:
             self.types = types
         else:
-            assert (
-                graph is not None
-            ), f"ModelBase.__init__: node '{node_id}': neither 'graph' or 'types' specified"
+            assert graph is not None, (
+                f"ModelBase.__init__: node '{node_id}': neither 'graph' or 'types' specified"
+            )
             self.types = get_node_types(graph=graph, node_id=node_id)
         assert len(self.types) > 0, f"node '{self.id}' has no type"
 
@@ -69,11 +71,13 @@ class ModelBase(object):
 
 class AttrLoaderProtocol(Protocol):
     """Protocol for functions that load model attributes."""
+
     def __call__(self, graph: Graph, model: ModelBase, **kwargs: Any) -> None: ...
 
 
 class ModelLoader(object):
     """Class for dynimcally adding functions to load different model attributes."""
+
     _loaders: list[AttrLoaderProtocol]
 
     def __init__(self) -> None:
@@ -97,3 +101,23 @@ class ModelLoader(object):
         """
         for loader in self._loaders:
             loader(graph=graph, model=model, **kwargs)
+
+
+def add_node_list_pred(
+    graph: Graph, subject_uri: URIRef, pred_uri: URIRef, nodes: list[Node]
+) -> Collection:
+    b = BNode()
+    c = Collection(graph=graph, uri=b, seq=nodes)
+    graph.add((subject_uri, pred_uri, b))
+    return c
+
+
+def add_literal_list_pred(
+    graph: Graph, subject_uri: URIRef, pred_uri: URIRef, values: tuple[Any, ...] | list[Any]
+) -> Collection:
+    literals = []
+    for val in values:
+        literals.append(Literal(val))
+    return add_node_list_pred(
+        graph=graph, subject_uri=subject_uri, pred_uri=pred_uri, nodes=literals
+    )
