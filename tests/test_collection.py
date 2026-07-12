@@ -1,7 +1,7 @@
 # SPDX-License-Identifier:  MPL-2.0
 import unittest
 from rdflib import RDF, BNode, Graph, URIRef
-from rdf_utils.collection import load_list_re
+from rdf_utils.collection import add_literal_list_pred, add_node_list_pred, load_list_re
 from rdf_utils.namespace import URL_SECORO_M
 from rdf_utils.uri import try_expand_curie
 
@@ -63,6 +63,26 @@ class CollectionTest(unittest.TestCase):
             RuntimeError, msg="test load_list_re: graph with loop should raise exception"
         ):
             _ = load_list_re(graph=loop_g, first_node=b1)
+
+    def test_add_list_pred(self):
+        graph = Graph()
+        pred = URIRef("urn:test:items")
+
+        node_subject = URIRef("urn:test:nodes")
+        nodes = [URIRef("urn:test:a"), URIRef("urn:test:b")]
+        add_node_list_pred(graph, node_subject, pred, nodes)  # type: ignore[arg-type]
+
+        node_list = graph.value(subject=node_subject, predicate=pred)
+        assert isinstance(node_list, BNode)
+        self.assertEqual(load_list_re(graph, node_list), nodes)
+
+        literal_subject = URIRef("urn:test:literals")
+        values = ["a", 2]
+        add_literal_list_pred(graph, literal_subject, pred, values)
+
+        literal_list = graph.value(subject=literal_subject, predicate=pred)
+        assert isinstance(literal_list, BNode)
+        self.assertEqual(load_list_re(graph, literal_list, parse_uri=False), values)
 
 
 if __name__ == "__main__":

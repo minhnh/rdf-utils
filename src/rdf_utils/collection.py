@@ -1,6 +1,7 @@
 # SPDX-License-Identifier:  MPL-2.0
 from typing import Any
-from rdflib import Graph, BNode, IdentifiedNode, Literal, URIRef
+from rdflib import Graph, Node, BNode, IdentifiedNode, Literal, URIRef
+from rdflib.collection import Collection
 from rdf_utils.uri import try_expand_curie
 
 
@@ -35,9 +36,9 @@ def _load_list_re(
             list_data.append(uri)
             continue
 
-        assert isinstance(
-            node, BNode
-        ), f"load_collections: node '{node}' not a Literal or BNode, type: {type(node)}"
+        assert isinstance(node, BNode), (
+            f"load_collections: node '{node}' not a Literal or BNode, type: {type(node)}"
+        )
 
         if node in node_set:
             raise RuntimeError(f"Loop detected in collection at node: {node}")
@@ -67,3 +68,45 @@ def load_list_re(
     node_set = set()
 
     return _load_list_re(graph, first_node, node_set, parse_uri, quiet)
+
+
+def add_node_list_pred(
+    graph: Graph, subject_uri: URIRef, pred_uri: URIRef, nodes: list[Node]
+) -> Collection:
+    """Add an RDF list of nodes as a predicate value on a subject.
+
+    Parameters:
+        graph: Graph object to add the list to
+        subject_uri: Subject node to attach the list to
+        pred_uri: Predicate connecting the subject to the list
+        nodes: Nodes to store in the RDF list
+
+    Returns:
+        Created RDF collection
+    """
+    b = BNode()
+    c = Collection(graph=graph, uri=b, seq=nodes)
+    graph.add((subject_uri, pred_uri, b))
+    return c
+
+
+def add_literal_list_pred(
+    graph: Graph, subject_uri: URIRef, pred_uri: URIRef, values: tuple[Any, ...] | list[Any]
+) -> Collection:
+    """Add an RDF list of literal values as a predicate value on a subject.
+
+    Parameters:
+        graph: Graph object to add the list to
+        subject_uri: Subject node to attach the list to
+        pred_uri: Predicate connecting the subject to the list
+        values: Values to convert to literals and store in the RDF list
+
+    Returns:
+        Created RDF collection
+    """
+    literals = []
+    for val in values:
+        literals.append(Literal(val))
+    return add_node_list_pred(
+        graph=graph, subject_uri=subject_uri, pred_uri=pred_uri, nodes=literals
+    )
