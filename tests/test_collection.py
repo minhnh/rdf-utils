@@ -2,7 +2,8 @@
 import unittest
 from rdflib import RDF, BNode, Graph, URIRef
 from rdf_utils.collection import load_list_re
-from rdf_utils.uri import URL_SECORO_M, try_expand_curie
+from rdf_utils.namespace import URL_SECORO_M
+from rdf_utils.uri import try_expand_curie
 
 
 CORRECT_LIST_MODEL = f"""

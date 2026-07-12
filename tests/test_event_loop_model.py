@@ -3,7 +3,7 @@ import unittest
 from rdflib import Graph, URIRef
 from rdf_utils.resolver import install_resolver
 from rdf_utils.constraints import check_shacl_constraints
-from rdf_utils.uri import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
+from rdf_utils.namespace import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
 from rdf_utils.models.event_loop import (
     URI_EL_TYPE_EVT_LOOP,
     URI_EL_TYPE_EVT,

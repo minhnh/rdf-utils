@@ -9,7 +9,7 @@ from rdf_utils.models.distribution import (
     sample_from_distrib,
 )
 from rdf_utils.resolver import install_resolver
-from rdf_utils.uri import URL_MM_DISTRIB_JSON, URL_MM_DISTRIB_SHACL, URL_SECORO_M
+from rdf_utils.namespace import URL_MM_DISTRIB_JSON, URL_MM_DISTRIB_SHACL, URL_SECORO_M
 
 # random distribution params
 NUM_SAMPLE = 20
@@ -54,8 +54,8 @@ VALID_DISTRIB_MODEL = f"""
         }},
         {{
             "@id": "{URI_TEST_UNIFORM_MULTI}", "@type": [ "Distribution", "Uniform" ], "dimension": {DIM},
-            "lower-bound": [ {', '.join(map(str, RAND_NUMS))} ],
-            "upper-bound": [ {', '.join(map(str, RAND_NUMS + RAND_RANGE))} ]
+            "lower-bound": [ {", ".join(map(str, RAND_NUMS))} ],
+            "upper-bound": [ {", ".join(map(str, RAND_NUMS + RAND_RANGE))} ]
         }},
         {{
             "@id": "{URI_TEST_NORMAL_UNI}", "@type": [ "Distribution", "Normal" ],
@@ -63,7 +63,7 @@ VALID_DISTRIB_MODEL = f"""
         }},
         {{
             "@id": "{URI_TEST_NORMAL_MULTI}", "@type": [ "Distribution", "Normal" ], "dimension": {DIM},
-            "mean": [ {', '.join(map(str, RAND_NUMS))} ],
+            "mean": [ {", ".join(map(str, RAND_NUMS))} ],
             "covariance": {get_matrix_string(RAND_COV)}
         }}
     ]

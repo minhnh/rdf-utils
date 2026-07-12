@@ -1,33 +1,33 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 import unittest
 import numpy as np
-from rdflib import Dataset, Graph, Namespace
+from rdflib import Graph, Namespace
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.models.geometry import (
-    URI_QUDT_TYPE_DEG,
+    URI_QUDT_UNIT_DEG,
     PoseCoordModel,
-    PositionCoordModel,
     get_coord_vectorxyz,
     get_euler_angles_abg,
     get_scipy_rotation,
 )
 from rdf_utils.resolver import install_resolver
-from rdf_utils.uri import (
+from rdf_utils.namespace import (
     URL_COMP_ROB2B,
     URL_MM_GEOM_COORD_JSON,
     URL_MM_GEOM_COORD_SECO_JSON,
     URL_MM_GEOM_JSON,
     URL_MM_GEOM_REL_JSON,
     URL_MM_GEOM_SHACL,
+    URL_MM_GEOM_SHACL_COORD,
+    URL_MM_GEOM_SHACL_REL,
     URL_MM_QUDT_JSON,
     URL_SECORO_M,
 )
 
-
-KINOVA_GEOM_MODEL = f"{URL_COMP_ROB2B}/robot-models/kinova/gen3/7dof/robot.geom.json"
 NS_ROB = Namespace(f"{URL_COMP_ROB2B}/robots/kinova/gen3/7dof/")
+KINOVA_GEOM_MODEL = f"{URL_COMP_ROB2B}/robot-models/kinova/gen3/7dof/robot.geom.json"
 
-NS_TEST = Namespace(f"{URL_SECORO_M}/tests/collection/")
+NS_TEST = Namespace(f"{URL_SECORO_M}/tests/geom/")
 URI_TEST_POSE = NS_TEST["pose"]
 URI_TEST_REF_ORIGIN = NS_TEST["frame-reference-origin"]
 URI_TEST_BODY_ORIGIN = NS_TEST["frame-body-origin"]
@@ -41,7 +41,14 @@ VALID_EULER_ANGLES = f"""
         "{URL_MM_GEOM_JSON}",
         "{URL_MM_GEOM_REL_JSON}",
         "{URL_MM_GEOM_COORD_JSON}",
-        "{URL_MM_GEOM_COORD_SECO_JSON}"
+        "{URL_MM_GEOM_COORD_SECO_JSON}",
+        {{
+            "of-orientation": {{ "@id": "geom-coord:of-orientation", "@type": "@id" }},
+            "as-seen-by": {{ "@id": "geom-coord:as-seen-by", "@type": "@id" }},
+            "of-pose": {{ "@id": "geom-coord:of-pose", "@type": "@id" }},
+            "of": {{ "@id": "geom-rel:of", "@type": "@id" }},
+            "wrt": {{ "@id": "geom-rel:with-respect-to", "@type": "@id" }}
+        }}
     ],
     "@graph": [
         {{ "@id": "{URI_TEST_REF_ORIGIN}", "@type": "Point" }},
@@ -79,31 +86,18 @@ class GeometryTest(unittest.TestCase):
     def setUp(self):
         install_resolver()
 
-    def test_kinova_geom_model(self):
-        kinova_ds = Dataset()
-        kinova_ds.parse(KINOVA_GEOM_MODEL, format="json-ld")
-
-        kinova_g = kinova_ds.graph(NS_ROB["geometry"])
-        check_shacl_constraints(
-            graph=kinova_g, shacl_dict={URL_MM_GEOM_SHACL: "turtle"}, quiet=False
-        )
-
-        pose_model = PoseCoordModel(
-            coord_id=NS_ROB["pose-coord-link0-joint1-wrt-link0-root"], graph=kinova_g
-        )
-        _ = get_coord_vectorxyz(pose_model, kinova_g)
-
-        position_model = PositionCoordModel(
-            coord_id=NS_ROB["position-coord-link0-com-wrt-link0-root-origin"], graph=kinova_g
-        )
-        _ = get_coord_vectorxyz(position_model, kinova_g)
-
     def test_euler_geom_model(self):
         euler_g = Graph()
         euler_g.parse(data=VALID_EULER_ANGLES, format="json-ld")
 
         check_shacl_constraints(
-            graph=euler_g, shacl_dict={URL_MM_GEOM_SHACL: "turtle"}, quiet=False
+            graph=euler_g,
+            shacl_dict={
+                URL_MM_GEOM_SHACL: "ttl",
+                URL_MM_GEOM_SHACL_REL: "ttl",
+                URL_MM_GEOM_SHACL_COORD: "ttl",
+            },
+            quiet=False,
         )
 
         pose_model = PoseCoordModel(coord_id=URI_TEST_EULER_POSE, graph=euler_g)
@@ -116,5 +110,5 @@ class GeometryTest(unittest.TestCase):
         rot = get_scipy_rotation(pose_model, euler_g)
         if is_intrinsic:
             seq = seq.upper()
-        scipy_angles = rot.as_euler(seq=seq, degrees=(unit == URI_QUDT_TYPE_DEG))
+        scipy_angles = rot.as_euler(seq=seq, degrees=(unit == URI_QUDT_UNIT_DEG))
         assert np.allclose(angles, scipy_angles)

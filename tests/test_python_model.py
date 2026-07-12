@@ -4,7 +4,7 @@ from urllib.request import urlopen
 from rdflib import Graph, URIRef
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.models.common import ModelBase, ModelLoader
-from rdf_utils.uri import URL_MM_PYTHON_JSON, URL_MM_PYTHON_SHACL, URL_SECORO_M
+from rdf_utils.namespace import URL_MM_PYTHON_JSON, URL_MM_PYTHON_SHACL, URL_SECORO_M
 from rdf_utils.resolver import install_resolver
 from rdf_utils.models.python import (
     import_attr_from_model,

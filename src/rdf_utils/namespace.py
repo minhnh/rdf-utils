@@ -19,6 +19,7 @@ URL_MM_DISTRIB_SHACL = f"{URL_SECORO_MM}/probability/distribution.shacl.ttl"
 
 URL_MM_QUDT_JSON = f"{URL_COMP_ROB2B}/metamodels/qudt.json"
 URL_MM_GEOM_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entities.json"
+URL_MM_GEOM_REL_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations.json"
 URL_MM_GEOM_COORD_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates.json"
 URL_MM_GEOM_SHACL_COORD = f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates.ttl"
 URL_MM_GEOM_SHACL_OPS = f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-operators.ttl"

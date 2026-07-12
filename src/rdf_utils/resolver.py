@@ -8,7 +8,7 @@ import pathlib
 import urllib.request
 import urllib.response
 from email.message import EmailMessage
-from rdf_utils.uri import URL_SECORO, URL_COMP_ROB2B
+from rdf_utils.namespace import URL_SECORO, URL_COMP_ROB2B
 from rdf_utils import __version__
 
 

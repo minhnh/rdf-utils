@@ -2,7 +2,7 @@
 import unittest
 from os.path import exists
 from urllib.request import urlopen
-from rdf_utils.uri import URL_SECORO_MM
+from rdf_utils.namespace import URL_SECORO_MM
 from rdf_utils.resolver import install_resolver
 
 

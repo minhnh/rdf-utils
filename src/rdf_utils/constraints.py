@@ -9,6 +9,7 @@ class ConstraintViolation(Exception):
     Attributes:
         domain: the violation's domain
     """
+
     domain: str
 
     def __init__(self, domain: str, message: str):
@@ -18,11 +19,12 @@ class ConstraintViolation(Exception):
 
 class SHACLViolation(ConstraintViolation):
     """Specialized exception for SHACL violations"""
+
     def __init__(self, violation_str: str):
         super().__init__("SHACL", violation_str)
 
 
-def check_shacl_constraints(graph: Graph, shacl_dict: dict[str, str], quiet:bool = False) -> bool:
+def check_shacl_constraints(graph: Graph, shacl_dict: dict[str, str], quiet: bool = False) -> bool:
     """Check a graph against a collection of SHACL constraints
 
     Parameters:
@@ -35,6 +37,10 @@ def check_shacl_constraints(graph: Graph, shacl_dict: dict[str, str], quiet:bool
         shacl_g.parse(mm_url, format=fmt)
 
     conforms, _, report_text = pyshacl.validate(graph, shacl_graph=shacl_g, inference="rdfs")
+
+    assert isinstance(conforms, bool), (
+        f"unexpected 'conforms' type from pyshacl.validate: {conforms}"
+    )
 
     if not conforms and not quiet:
         raise SHACLViolation(report_text)
