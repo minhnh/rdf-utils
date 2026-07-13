@@ -4,28 +4,18 @@ import numpy as np
 from rdflib import BNode, Literal, URIRef, Graph
 from rdf_utils.collection import load_list_re
 from rdf_utils.models.common import ModelBase
-from rdf_utils.namespace import NS_MM_DISTRIB
-
-
-URI_DISTRIB_TYPE_DISTRIB = NS_MM_DISTRIB["Distribution"]
-URI_DISTRIB_PRED_DIM = NS_MM_DISTRIB["dimension"]
-
-URI_DISTRIB_TYPE_CONT = NS_MM_DISTRIB["Continuous"]
-URI_DISTRIB_TYPE_DISCR = NS_MM_DISTRIB["Discrete"]
-
-URI_DISTRIB_TYPE_UNIFORM = NS_MM_DISTRIB["Uniform"]
-URI_DISTRIB_PRED_UPPER = NS_MM_DISTRIB["upper-bound"]
-URI_DISTRIB_PRED_LOWER = NS_MM_DISTRIB["lower-bound"]
-
-URI_DISTRIB_TYPE_NORMAL = NS_MM_DISTRIB["Normal"]
-URI_DISTRIB_PRED_MEAN = NS_MM_DISTRIB["mean"]
-URI_DISTRIB_PRED_STD = NS_MM_DISTRIB["standard-deviation"]
-URI_DISTRIB_PRED_COV = NS_MM_DISTRIB["covariance"]
-
-URI_DISTRIB_TYPE_UNIFORM_ROT = NS_MM_DISTRIB["UniformRotation"]
-
-URI_DISTRIB_TYPE_SAMPLED_QUANTITY = NS_MM_DISTRIB["SampledQuantity"]
-URI_DISTRIB_PRED_FROM_DISTRIB = NS_MM_DISTRIB["from-distribution"]
+from rdf_utils.models.vocab import (
+    URI_DISTRIB_PRED_COV,
+    URI_DISTRIB_PRED_DIM,
+    URI_DISTRIB_PRED_FROM_DISTRIB,
+    URI_DISTRIB_PRED_LOWER,
+    URI_DISTRIB_PRED_MEAN,
+    URI_DISTRIB_PRED_STD,
+    URI_DISTRIB_PRED_UPPER,
+    URI_DISTRIB_TYPE_NORMAL,
+    URI_DISTRIB_TYPE_UNIFORM,
+    URI_DISTRIB_TYPE_UNIFORM_ROT,
+)
 
 
 def _get_float_from_literal(literal: Literal) -> float:
@@ -46,6 +36,7 @@ class DistributionModel(ModelBase):
         distrib_id: URI of the distribution in the graph
         graph: RDF graph for loading attributes
     """
+
     distrib_type: URIRef
 
     def __init__(self, distrib_id: URIRef, graph: Graph) -> None:
@@ -65,13 +56,13 @@ class DistributionModel(ModelBase):
     def _load_uniform_distrib_attrs(self, graph: Graph) -> None:
         # dimension
         dim_node = graph.value(subject=self.id, predicate=URI_DISTRIB_PRED_DIM)
-        assert isinstance(
-            dim_node, Literal
-        ), f"Uniform distrib '{self.id}' does not have a Literal 'dimension': {dim_node}"
+        assert isinstance(dim_node, Literal), (
+            f"Uniform distrib '{self.id}' does not have a Literal 'dimension': {dim_node}"
+        )
         dim = dim_node.toPython()
-        assert (
-            isinstance(dim, int) and dim > 0
-        ), f"Uniform distrib '{self.id}' does not have a positive integer 'dimension': {dim}"
+        assert isinstance(dim, int) and dim > 0, (
+            f"Uniform distrib '{self.id}' does not have a positive integer 'dimension': {dim}"
+        )
 
         upper_bounds = None
         lower_bounds = None
@@ -105,15 +96,15 @@ class DistributionModel(ModelBase):
             )
 
         # check property dimensions
-        assert (
-            dim == len(lower_bounds) and dim == len(upper_bounds)
-        ), f"Uniform distrib '{self.id}' has mismatching property dimensions: dim={dim}, upper bounds num={len(upper_bounds)}, lower bounds num={len(lower_bounds)}"
+        assert dim == len(lower_bounds) and dim == len(upper_bounds), (
+            f"Uniform distrib '{self.id}' has mismatching property dimensions: dim={dim}, upper bounds num={len(upper_bounds)}, lower bounds num={len(lower_bounds)}"
+        )
 
         # check lower bounds less than higher bounds
         less_than = np.less(lower_bounds, upper_bounds)
-        assert np.all(
-            less_than
-        ), f"Uniform distrib '{self.id}': not all lower bounds less than upper bounds: lower={lower_bounds}, upper={upper_bounds}"
+        assert np.all(less_than), (
+            f"Uniform distrib '{self.id}': not all lower bounds less than upper bounds: lower={lower_bounds}, upper={upper_bounds}"
+        )
 
         # set attributes
         self.set_attr(key=URI_DISTRIB_PRED_DIM, val=dim)
@@ -123,30 +114,30 @@ class DistributionModel(ModelBase):
     def _load_normal_distrib_attrs(self, graph: Graph) -> None:
         # dimension
         dim_node = graph.value(subject=self.id, predicate=URI_DISTRIB_PRED_DIM)
-        assert isinstance(
-            dim_node, Literal
-        ), f"Normal distrib '{self.id}' does not have a Literal 'dimension': {dim_node}"
+        assert isinstance(dim_node, Literal), (
+            f"Normal distrib '{self.id}' does not have a Literal 'dimension': {dim_node}"
+        )
         dim = dim_node.toPython()
-        assert (
-            isinstance(dim, int) and dim > 0
-        ), f"Normal distrib '{self.id}' does not have a positive integer 'dimension': {dim}"
+        assert isinstance(dim, int) and dim > 0, (
+            f"Normal distrib '{self.id}' does not have a positive integer 'dimension': {dim}"
+        )
         self.set_attr(key=URI_DISTRIB_PRED_DIM, val=dim)
 
         # get mean
         mean_node = graph.value(subject=self.id, predicate=URI_DISTRIB_PRED_MEAN)
         if isinstance(mean_node, Literal):
-            assert (
-                dim == 1
-            ), f"Normal distrib '{self.id}' has single mean '{mean_node}' but dimension '{dim}'"
+            assert dim == 1, (
+                f"Normal distrib '{self.id}' has single mean '{mean_node}' but dimension '{dim}'"
+            )
             mean_val = _get_float_from_literal(mean_node)
             self.set_attr(key=URI_DISTRIB_PRED_MEAN, val=[mean_val])
         elif isinstance(mean_node, BNode):
             mean_vals = load_list_re(
                 graph=graph, first_node=mean_node, parse_uri=False, quiet=False
             )
-            assert (
-                len(mean_vals) == dim
-            ), f"Normal distrib '{self.id}': number of mean values ({len(mean_vals)}) does not match dimension ({dim})"
+            assert len(mean_vals) == dim, (
+                f"Normal distrib '{self.id}': number of mean values ({len(mean_vals)}) does not match dimension ({dim})"
+            )
             self.set_attr(key=URI_DISTRIB_PRED_MEAN, val=mean_vals)
         else:
             raise RuntimeError(
@@ -156,16 +147,16 @@ class DistributionModel(ModelBase):
         # get standard deviation or covariance based on dimension
         if dim == 1:
             std_node = graph.value(subject=self.id, predicate=URI_DISTRIB_PRED_STD)
-            assert isinstance(
-                std_node, Literal
-            ), f"Normal distrib '{self.id}' does not have a Literal 'standard-deviation': {std_node}"
+            assert isinstance(std_node, Literal), (
+                f"Normal distrib '{self.id}' does not have a Literal 'standard-deviation': {std_node}"
+            )
             std = _get_float_from_literal(std_node)
             self.set_attr(key=URI_DISTRIB_PRED_STD, val=std)
         else:
             cov_node = graph.value(subject=self.id, predicate=URI_DISTRIB_PRED_COV)
-            assert isinstance(
-                cov_node, BNode
-            ), f"Normal distrib '{self.id}': 'covariance' property not a container, type={type(cov_node)}"
+            assert isinstance(cov_node, BNode), (
+                f"Normal distrib '{self.id}': 'covariance' property not a container, type={type(cov_node)}"
+            )
             cov_vals = load_list_re(graph=graph, first_node=cov_node, parse_uri=False, quiet=False)
             try:
                 cov_mat = np.array(cov_vals, dtype=float)
@@ -173,13 +164,12 @@ class DistributionModel(ModelBase):
                 raise ValueError(
                     f"Normal distrib '{self.id}', can't convert covariance to float numpy array: {e}\n{cov_vals}"
                 )
-            assert (
-                cov_mat.shape
-                == (
-                    dim,
-                    dim,
-                )
-            ), f"Normal distrib '{self.id}': dimension='{dim}' doesn't match 'covariance' shape'{cov_mat.shape}'"
+            assert cov_mat.shape == (
+                dim,
+                dim,
+            ), (
+                f"Normal distrib '{self.id}': dimension='{dim}' doesn't match 'covariance' shape'{cov_mat.shape}'"
+            )
             self.set_attr(key=URI_DISTRIB_PRED_COV, val=cov_mat)
 
 
@@ -194,9 +184,9 @@ def distrib_from_sampled_quantity(quantity_id: URIRef, graph: Graph) -> Distribu
         distribution model object
     """
     distrib_id = graph.value(subject=quantity_id, predicate=URI_DISTRIB_PRED_FROM_DISTRIB)
-    assert isinstance(
-        distrib_id, URIRef
-    ), f"Node '{quantity_id}' does not link to a distribution node: {distrib_id}"
+    assert isinstance(distrib_id, URIRef), (
+        f"Node '{quantity_id}' does not link to a distribution node: {distrib_id}"
+    )
     return DistributionModel(distrib_id=distrib_id, graph=graph)
 
 
@@ -225,34 +215,34 @@ def sample_from_distrib(
     if URI_DISTRIB_TYPE_UNIFORM in distrib.types:
         lower_bounds = distrib.get_attr(key=URI_DISTRIB_PRED_LOWER)
         upper_bounds = distrib.get_attr(key=URI_DISTRIB_PRED_UPPER)
-        assert isinstance(lower_bounds, list) and isinstance(
-            upper_bounds, list
-        ), f"Uniform distrib '{distrib.id}' does not have valid lower & upper bounds"
+        assert isinstance(lower_bounds, list) and isinstance(upper_bounds, list), (
+            f"Uniform distrib '{distrib.id}' does not have valid lower & upper bounds"
+        )
         return np.random.uniform(lower_bounds, upper_bounds, size=size)
 
     if URI_DISTRIB_TYPE_NORMAL in distrib.types:
         dim = distrib.get_attr(key=URI_DISTRIB_PRED_DIM)
-        assert (
-            isinstance(dim, int) and dim > 0
-        ), f"Normal distrib '{distrib.id}' does not have valid dimension: {dim}"
+        assert isinstance(dim, int) and dim > 0, (
+            f"Normal distrib '{distrib.id}' does not have valid dimension: {dim}"
+        )
 
         mean = distrib.get_attr(key=URI_DISTRIB_PRED_MEAN)
-        assert (
-            isinstance(mean, list) and len(mean) == dim
-        ), f"Normal distrib '{distrib.id}' does not have valid mean: {mean}"
+        assert isinstance(mean, list) and len(mean) == dim, (
+            f"Normal distrib '{distrib.id}' does not have valid mean: {mean}"
+        )
 
         if dim == 1:
             std = distrib.get_attr(key=URI_DISTRIB_PRED_STD)
-            assert isinstance(
-                std, float
-            ), f"Normal distrib '{distrib.id}' does not have valid standard deviation: {std}"
+            assert isinstance(std, float), (
+                f"Normal distrib '{distrib.id}' does not have valid standard deviation: {std}"
+            )
             return np.random.normal(loc=mean[0], scale=std, size=size)
 
         # multivariate normal
         cov = distrib.get_attr(key=URI_DISTRIB_PRED_COV)
-        assert isinstance(
-            cov, np.ndarray
-        ), f"Normal distrib '{distrib.id}' does not have valid covariance: {cov}"
+        assert isinstance(cov, np.ndarray), (
+            f"Normal distrib '{distrib.id}' does not have valid covariance: {cov}"
+        )
         return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
 
     raise RuntimeError(f"Distrib '{distrib.id}' has unhandled types: {distrib.types}")
