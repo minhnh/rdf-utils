@@ -33,6 +33,8 @@ NS_MM_GEOM = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entitie
 NS_MM_GEOM_REL = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations#")
 NS_MM_GEOM_COORD = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/coordinates#")
 NS_MM_KC = Namespace(f"{URL_COMP_ROB2B}/metamodels/kinematic-chain/structural-entities#")
+NS_MM_KC_STAT = Namespace(f"{URL_COMP_ROB2B}/metamodels/kinematic-chain/state#")
+NS_MM_KC_EXT = Namespace(f"{URL_SECORO_MM}/kinematic-chain/structural-entities-extension#")
 NS_MM_DYN_ENT = Namespace(
     f"{URL_COMP_ROB2B}/metamodels/newtonian-rigid-body-dynamics/structural-entities#"
 )
@@ -46,3 +48,4 @@ NS_MM_AGN = Namespace(f"{URL_SECORO_MM}/agent#")
 NS_MM_TIME = Namespace(f"{URL_SECORO_MM}/time#")
 NS_MM_EL = Namespace(f"{URL_SECORO_MM}/behaviour/event_loop#")
 NS_MM_DISTRIB = Namespace(f"{URL_SECORO_MM}/probability/distribution#")
+NS_MM_ACT = Namespace(f"{URL_SECORO_MM}/robot/actuation#")
