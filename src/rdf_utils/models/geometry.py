@@ -74,6 +74,8 @@ class IFrameRelationCoord(ModelBase):
 
     Parameters:
         coord_id: URI of the coordinate node in the graph
+        relation_id: URI of the node in the graph, which specifies the
+                     geometric relation between 2 frames, e.g. Pose or Orientation
         graph: RDF graph for loading attributes
     """
 
@@ -86,7 +88,7 @@ class IFrameRelationCoord(ModelBase):
 
         seen_by_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_SEEN_BY)
         assert seen_by_id is not None and isinstance(seen_by_id, URIRef), (
-            f"PoseCoordinate '{self.id}' does not have a valid 'as-seen-by' property: {seen_by_id}"
+            f"IFrameRelationCoord: '{self.id}' does not have a valid 'as-seen-by' property: {seen_by_id}"
         )
         self.as_seen_by = seen_by_id
 
@@ -134,7 +136,7 @@ class PoseCoordModel(IFrameRelationCoord):
 
 
 class OrientCoordModel(IFrameRelationCoord):
-    """Model object for a OrientationCoordinate
+    """Model object for an OrientationCoordinate
 
     Attributes:
         orientation: URI of the Orientation relation to which the coordinate supplies values.
@@ -156,10 +158,10 @@ class OrientCoordModel(IFrameRelationCoord):
         super().__init__(coord_id=coord_id, relation_id=self.orientation, graph=graph)
 
         assert URI_GEOM_TYPE_ORIENT_COORD in self.types, (
-            f"OrientCoordModel: '{self.id}' is not a OrientationCoordinate"
+            f"OrientCoordModel: '{self.id}' is not an OrientationCoordinate"
         )
         assert URI_GEOM_TYPE_ORIENT_REF in self.types, (
-            f"OrientCoordModel: '{self.id}' is not a OrientationReference"
+            f"OrientCoordModel: '{self.id}' is not an OrientationReference"
         )
 
 
@@ -285,7 +287,7 @@ def get_euler_angles_abg(
     """Extract coordinates for a AnglesAlphaBetaGamma model.
 
     Parameters:
-        coord_model: coordinate model object,, either PoseCoordModel or OrientCoordModel
+        coord_model: coordinate model object, either PoseCoordModel or OrientCoordModel
         graph: RDF graph to look for coordinate attributes
 
     Returns:

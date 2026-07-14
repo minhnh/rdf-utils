@@ -5,6 +5,7 @@ from rdflib import Graph, Namespace
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.models.geometry import (
     URI_QUDT_UNIT_DEG,
+    OrientCoordModel,
     PoseCoordModel,
     get_coord_vectorxyz,
     get_euler_angles_abg,
@@ -34,6 +35,8 @@ URI_TEST_BODY_ORIGIN = NS_TEST["frame-body-origin"]
 URI_TEST_FRAME_REF = NS_TEST["frame-reference"]
 URI_TEST_FRAME_BODY = NS_TEST["frame-body"]
 URI_TEST_EULER_POSE = NS_TEST["pose-coord-euler"]
+URI_TEST_ORIENTATION = NS_TEST["orientation"]
+URI_TEST_ORIENT_COORD = NS_TEST["orientation-coord"]
 VALID_EULER_ANGLES = f"""
 {{
     "@context": [
@@ -66,6 +69,10 @@ VALID_EULER_ANGLES = f"""
             "of": "{URI_TEST_FRAME_BODY}", "with-respect-to": "{URI_TEST_FRAME_REF}"
         }},
         {{
+            "@id": "{URI_TEST_ORIENTATION}", "@type": "Orientation",
+            "of": "{URI_TEST_FRAME_BODY}", "with-respect-to": "{URI_TEST_FRAME_REF}"
+        }},
+        {{
             "@id": "{URI_TEST_EULER_POSE}",
             "@type": [
                 "VectorXYZ", "PoseReference", "PoseCoordinate", "EulerAngles", "AnglesABG", "Intrinsic"
@@ -76,6 +83,13 @@ VALID_EULER_ANGLES = f"""
             "unit": [ "M", "DEG" ],
             "alpha": 45.0, "beta": 0.0, "gamma": 0.0,
             "x": 10.0, "y": 5.0, "z": 0.0
+        }},
+        {{
+            "@id": "{URI_TEST_ORIENT_COORD}",
+            "@type": [ "VectorXYZ", "OrientationReference", "OrientationCoordinate" ],
+            "of-orientation": "{URI_TEST_ORIENTATION}",
+            "as-seen-by": "{URI_TEST_FRAME_REF}",
+            "x": 0.0, "y": 0.0, "z": 0.0
         }}
     ]
 }}
@@ -112,3 +126,14 @@ class GeometryTest(unittest.TestCase):
             seq = seq.upper()
         scipy_angles = rot.as_euler(seq=seq, degrees=(unit == URI_QUDT_UNIT_DEG))
         assert np.allclose(angles, scipy_angles)
+
+    def test_orientation_geom_model(self):
+        orientation_g = Graph()
+        orientation_g.parse(data=VALID_EULER_ANGLES, format="json-ld")
+
+        orientation_model = OrientCoordModel(coord_id=URI_TEST_ORIENT_COORD, graph=orientation_g)
+
+        assert orientation_model.orientation == URI_TEST_ORIENTATION
+        assert orientation_model.as_seen_by == URI_TEST_FRAME_REF
+        assert orientation_model.of.origin == URI_TEST_BODY_ORIGIN
+        assert orientation_model.wrt.origin == URI_TEST_REF_ORIGIN
