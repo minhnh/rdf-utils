@@ -15,6 +15,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_BETA,
     URI_GEOM_PRED_GAMMA,
     URI_GEOM_PRED_OF,
+    URI_GEOM_PRED_OF_ORIENT,
     URI_GEOM_PRED_OF_POSE,
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_ORIGIN,
@@ -27,6 +28,8 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_EULER_ANGLES,
     URI_GEOM_TYPE_EXTRINSIC,
     URI_GEOM_TYPE_INTRINSIC,
+    URI_GEOM_TYPE_ORIENT_COORD,
+    URI_GEOM_TYPE_ORIENT_REF,
     URI_GEOM_TYPE_POSE_COORD,
     URI_GEOM_TYPE_POSE_REF,
     URI_GEOM_TYPE_POSITION_COORD,
@@ -61,29 +64,25 @@ class FrameModel(ModelBase):
         self.origin = origin_id
 
 
-class PoseCoordModel(ModelBase):
-    """Model object for a PoseCoordinate
+class IFrameRelationCoord(ModelBase):
+    """Model object for a PoseCoordinate or OrientationCoordinate
 
     Attributes:
-        pose: URI of Pose of the coordinate
         of: the pose's target frame
         wrt: the pose's reference frame
         as_seen_by: the coordinate's reference frame
 
     Parameters:
-        coord_id: URI of the PoseCoordinate in the graph
+        coord_id: URI of the coordinate node in the graph
         graph: RDF graph for loading attributes
     """
 
-    pose: URIRef
     of: FrameModel
     wrt: FrameModel
     as_seen_by: URIRef
 
-    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+    def __init__(self, coord_id: URIRef, relation_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=coord_id, graph=graph)
-
-        assert URI_GEOM_TYPE_POSE_COORD in self.types, f"'{self.id}' is not a PoseCoordinate"
 
         seen_by_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_SEEN_BY)
         assert seen_by_id is not None and isinstance(seen_by_id, URIRef), (
@@ -91,24 +90,77 @@ class PoseCoordModel(ModelBase):
         )
         self.as_seen_by = seen_by_id
 
-        assert URI_GEOM_TYPE_POSE_REF in self.types, f"'{self.id}' is not a PoseReference"
-        pose_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_OF_POSE)
-        assert pose_id is not None and isinstance(pose_id, URIRef), (
-            f"PoseCoordinate '{self.id}' does not have a valid 'of-pose' property: {pose_id}"
-        )
-        self.pose = pose_id
-
-        of_id = graph.value(subject=self.pose, predicate=URI_GEOM_PRED_OF)
+        of_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_OF)
         assert of_id is not None and isinstance(of_id, URIRef), (
-            f"Pose '{self.pose}' does not have a valid 'of' property: {of_id}"
+            f"IFrameRelationCoord: relation '{relation_id}' does not have a valid 'of' property: {of_id}"
         )
         self.of = FrameModel(frame_id=of_id, graph=graph)
 
-        wrt_id = graph.value(subject=self.pose, predicate=URI_GEOM_PRED_WRT)
+        wrt_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_WRT)
         assert wrt_id is not None and isinstance(wrt_id, URIRef), (
-            f"Pose '{self.pose}' does not have a valid 'with-respect-to' property: {wrt_id}"
+            f"IFrameRelationCoord: '{relation_id}' does not have a valid 'with-respect-to' property: {wrt_id}"
         )
         self.wrt = FrameModel(frame_id=wrt_id, graph=graph)
+
+
+class PoseCoordModel(IFrameRelationCoord):
+    """Model object for a PoseCoordinate
+
+    Attributes:
+        pose: URI of Pose relation to which the coordinate supplies values.
+
+    Parameters:
+        coord_id: URI of the PoseCoordinate in the graph
+        graph: RDF graph for loading attributes
+    """
+
+    pose: URIRef
+
+    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+        pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
+        assert pose_id is not None and isinstance(pose_id, URIRef), (
+            f"PoseCoordinate '{coord_id}' does not have a valid 'of-pose' property: {pose_id}"
+        )
+        self.pose = pose_id
+
+        super().__init__(coord_id=coord_id, relation_id=self.pose, graph=graph)
+
+        assert URI_GEOM_TYPE_POSE_COORD in self.types, (
+            f"PoseCoordModel: '{self.id}' is not a PoseCoordinate"
+        )
+        assert URI_GEOM_TYPE_POSE_REF in self.types, (
+            f"PoseCoordModel: '{self.id}' is not a PoseReference"
+        )
+
+
+class OrientCoordModel(IFrameRelationCoord):
+    """Model object for a OrientationCoordinate
+
+    Attributes:
+        orientation: URI of the Orientation relation to which the coordinate supplies values.
+
+    Parameters:
+        coord_id: URI of the OrientationCoordinate in the graph
+        graph: RDF graph for loading attributes
+    """
+
+    orientation: URIRef
+
+    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+        orient_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_ORIENT)
+        assert orient_id is not None and isinstance(orient_id, URIRef), (
+            f"OrientationCoordinate '{coord_id}' does not have a valid 'of-orientation' property: {orient_id}"
+        )
+        self.orientation = orient_id
+
+        super().__init__(coord_id=coord_id, relation_id=self.orientation, graph=graph)
+
+        assert URI_GEOM_TYPE_ORIENT_COORD in self.types, (
+            f"OrientCoordModel: '{self.id}' is not a OrientationCoordinate"
+        )
+        assert URI_GEOM_TYPE_ORIENT_REF in self.types, (
+            f"OrientCoordModel: '{self.id}' is not a OrientationReference"
+        )
 
 
 class PositionCoordModel(ModelBase):
@@ -195,11 +247,11 @@ def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, fl
     return (x_node.value, y_node.value, z_node.value)
 
 
-def get_euler_angles_params(coord_model: PoseCoordModel, graph: Graph) -> tuple[str, bool]:
+def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> tuple[str, bool]:
     """Extract parameters for a EulerAngles model.
 
     Parameters:
-        coord_model: coordinate model object, currently only handle PoseCoordModel
+        coord_model: coordinate model object, either PoseCoordModel or OrientCoordModel
         graph: RDF graph to look for coordinate attributes
 
     Returns:
@@ -228,12 +280,12 @@ def get_euler_angles_params(coord_model: PoseCoordModel, graph: Graph) -> tuple[
 
 
 def get_euler_angles_abg(
-    coord_model: PoseCoordModel, graph: Graph
+    coord_model: IFrameRelationCoord, graph: Graph
 ) -> tuple[str, bool, URIRef, tuple[float, float, float]]:
     """Extract coordinates for a AnglesAlphaBetaGamma model.
 
     Parameters:
-        coord_model: coordinate model object, currently only handle PoseCoordModel
+        coord_model: coordinate model object,, either PoseCoordModel or OrientCoordModel
         graph: RDF graph to look for coordinate attributes
 
     Returns:
