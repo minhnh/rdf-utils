@@ -1,9 +1,30 @@
 # SPDX-License-Identifier:  MPL-2.0
 from typing import Iterable, Optional, Union
+from urllib.parse import urlsplit, urlunsplit
+
 from rdflib import URIRef
+from rdflib.namespace import NamespaceManager
 from rdflib.util import from_n3
 from rdflib.term import Node as RDFNode
-from rdflib.namespace import NamespaceManager
+
+
+def iri_parent(value: URIRef | str) -> URIRef:
+    """Return the parent IRI while preserving its scheme and authority."""
+    parsed = urlsplit(str(value))
+    path = parsed.path.rstrip("/")
+    parent, separator, _name = path.rpartition("/")
+    if not separator:
+        raise ValueError(f"IRI has no parent path: {value}")
+    return URIRef(urlunsplit(parsed._replace(path=parent or "/", query="", fragment="")))
+
+
+def iri_is_descendant(parent: URIRef | str, value: URIRef | str) -> bool:
+    """True when value is below parent in the same hierarchical IRI authority."""
+    parent_uri, value_uri = map(lambda item: urlsplit(str(item)), (parent, value))
+    if (parent_uri.scheme, parent_uri.netloc) != (value_uri.scheme, value_uri.netloc):
+        return False
+    prefix = parent_uri.path if parent_uri.path.endswith("/") else f"{parent_uri.path}/"
+    return value_uri.path.startswith(prefix)
 
 
 def try_expand_curie(
