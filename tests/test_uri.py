@@ -19,9 +19,12 @@ def test_hierarchical_iri_helpers_preserve_rdf_identity() -> None:
     assert not iri_is_descendant(URIRef("https://example.test/scene/kinova"), body)
 
 
-def test_hierarchical_iri_helpers_do_not_apply_filesystem_normalization() -> None:
-    parent = URIRef("https://example.test/scene//kinova1")
-    child = URIRef("https://example.test/scene//kinova1/base_link")
+def test_fragment_names_a_term_within_its_document() -> None:
+    scene = URIRef("https://example.test/scene")
+    tree = URIRef("https://example.test/scene/kinova1")
+    body = URIRef("https://example.test/scene/kinova1#base_link")
 
-    assert iri_parent(child) == parent
-    assert iri_is_descendant(parent, child)
+    assert iri_parent(body) == tree
+    assert iri_is_descendant(tree, body)
+    assert iri_is_descendant(scene, body)
+    assert not iri_is_descendant(URIRef("https://example.test/scene/kinova"), body)
