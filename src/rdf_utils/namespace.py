@@ -43,6 +43,7 @@ NS_MM_DYN_COORD = Namespace(
 )
 
 NS_MM_PYTHON = Namespace(f"{URL_SECORO_MM}/languages/python#")
+NS_MM_EXEC = Namespace(f"{URL_SECORO_MM}/execution-context#")
 NS_MM_ENV = Namespace(f"{URL_SECORO_MM}/environment#")
 NS_MM_AGN = Namespace(f"{URL_SECORO_MM}/agent#")
 NS_MM_TIME = Namespace(f"{URL_SECORO_MM}/time#")
