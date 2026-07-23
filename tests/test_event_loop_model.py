@@ -10,6 +10,12 @@ from rdf_utils.models.event_loop import (
     URI_EL_TYPE_EVT_REACT,
     URI_EL_TYPE_FLG,
     URI_EL_TYPE_FLG_REACT,
+    URI_EL_PRED_REF_EVT,
+    URI_EL_PRED_HAS_EVT,
+    URI_EL_PRED_REF_FLG,
+    URI_EL_PRED_HAS_FLG,
+    URI_EL_PRED_HAS_EVT_REACT,
+    URI_EL_PRED_HAS_FLG_REACT,
     EventLoopModel,
 )
 
@@ -38,18 +44,18 @@ EVT_LOOP_MODEL_CORRECT_COMP = f"""
 "@graph": [
     {{
         "@id": "{URI_TEST_EL}/evt_reaction", "@type": "{URI_EL_TYPE_EVT_REACT.toPython()}",
-        "ref-event" : "{URI_TEST_EL}/event1"
+        "{URI_EL_PRED_REF_EVT.toPython()}" : {{ "@id": "{URI_TEST_EL}/event1" }}
     }},
     {{
         "@id": "{URI_TEST_EL}/flg_reaction", "@type": "{URI_EL_TYPE_FLG_REACT.toPython()}",
-        "ref-flag" : "{URI_TEST_EL}/flag1"
+        "{URI_EL_PRED_REF_FLG.toPython()}" : {{ "@id": "{URI_TEST_EL}/flag1" }}
     }},
     {{
         "@id": "{URI_TEST_LOOP}", "@type": "{URI_EL_TYPE_EVT_LOOP.toPython()}",
-        "has-event": [ "{URI_TEST_EL}/event1", "{URI_TEST_EL}/event2" ],
-        "has-evt-reaction": "{URI_TEST_EL}/evt_reaction",
-        "has-flag": [ "{URI_TEST_EL}/flag1", "{URI_TEST_EL}/flag2" ],
-        "has-flg-reaction": "{URI_TEST_EL}/flg_reaction"
+        "{URI_EL_PRED_HAS_EVT.toPython()}": [ {{ "@id": "{URI_TEST_EL}/event1" }}, {{ "@id": "{URI_TEST_EL}/event2" }} ],
+        "{URI_EL_PRED_HAS_EVT_REACT.toPython()}": {{ "@id": "{URI_TEST_EL}/evt_reaction" }},
+        "{URI_EL_PRED_HAS_FLG.toPython()}": [ {{ "@id": "{URI_TEST_EL}/flag1" }}, {{ "@id": "{URI_TEST_EL}/flag2" }} ],
+        "{URI_EL_PRED_HAS_FLG_REACT.toPython()}": {{ "@id": "{URI_TEST_EL}/flg_reaction" }}
     }}
 ]
 }}
@@ -60,12 +66,12 @@ EVT_LOOP_MODEL_WRONG_EVT = f"""
 "@graph": [
     {{
         "@id": "{URI_TEST_EL}/evt_reaction", "@type": "{URI_EL_TYPE_EVT_REACT.toPython()}",
-        "ref-event" : "{URI_TEST_EL}/event1"
+        "{URI_EL_PRED_REF_EVT.toPython()}" : {{ "@id": "{URI_TEST_EL}/event1" }}
     }},
     {{
         "@id": "{URI_TEST_LOOP}", "@type": "{URI_EL_TYPE_EVT_LOOP.toPython()}",
-        "has-event": [ "{URI_TEST_EL}/event2" ],
-        "has-evt-reaction": "{URI_TEST_EL}/evt_reaction"
+        "{URI_EL_PRED_HAS_EVT.toPython()}": [ {{ "@id": "{URI_TEST_EL}/event2" }} ],
+        "{URI_EL_PRED_HAS_EVT_REACT.toPython()}": {{ "@id": "{URI_TEST_EL}/evt_reaction" }}
     }}
 ]
 }}
@@ -76,12 +82,12 @@ EVT_LOOP_MODEL_WRONG_FLG = f"""
 "@graph": [
     {{
         "@id": "{URI_TEST_EL}/flg_reaction", "@type": "{URI_EL_TYPE_FLG_REACT.toPython()}",
-        "ref-flag" : "{URI_TEST_EL}/flag1"
+        "{URI_EL_PRED_REF_FLG.toPython()}" : {{ "@id": "{URI_TEST_EL}/flag1" }}
     }},
     {{
         "@id": "{URI_TEST_LOOP}", "@type": "{URI_EL_TYPE_EVT_LOOP.toPython()}",
-        "has-flag": [ "{URI_TEST_EL}/flag2" ],
-        "has-flg-reaction": "{URI_TEST_EL}/flg_reaction"
+        "{URI_EL_PRED_HAS_FLG.toPython()}": [ {{ "@id": "{URI_TEST_EL}/flag2" }} ],
+        "{URI_EL_PRED_HAS_FLG_REACT.toPython()}": {{ "@id": "{URI_TEST_EL}/flg_reaction" }}
     }}
 ]
 }}
