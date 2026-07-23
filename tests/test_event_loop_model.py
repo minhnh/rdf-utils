@@ -156,6 +156,8 @@ class EventLoopModelTest(unittest.TestCase):
 
         model = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=graph)
 
+        self.assertEqual(model.events, {event})
+        self.assertEqual(model.flags, {flag})
         self.assertEqual(set(model.event_reactions), event_reactions)
         self.assertEqual(model.event_reaction_maps[event], event_reactions)
         self.assertEqual(set(model.flag_reactions), flag_reactions)

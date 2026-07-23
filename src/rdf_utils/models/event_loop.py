@@ -58,21 +58,23 @@ class FlagReactionModel(ModelBase):
 
 
 class EventLoopModel(ModelBase):
-    """Model of an event loop containing models of reactions to events and flags.
+    """Model of an event loop containing events, flags, and their reactions.
 
     Attributes:
-        events_triggered: if true should notify that an event is triggered in the last loop
-        flag_values: value of flag in the last loop
-        event_reactions: reaction models to events
-        flag_reactions: reaction models to flags
+        events: Event URIs belonging to the event loop.
+        flags: Flag URIs belonging to the event loop.
+        event_reactions: Event reaction models keyed by reaction URI.
+        flag_reactions: Flag reaction models keyed by reaction URI.
+        event_reaction_maps: Reaction URIs grouped by event URI.
+        flag_reaction_maps: Reaction URIs grouped by flag URI.
 
     Parameters:
-        el_id: URI of event loop
-        graph: graph for loading attributes
+        el_id: URI of the event loop.
+        graph: RDF graph from which to load attributes.
     """
 
-    events_triggered: dict[URIRef, bool]
-    flag_values: dict[URIRef, bool]
+    events: set[URIRef]
+    flags: set[URIRef]
     event_reactions: dict[URIRef, EventReactionModel]
     flag_reactions: dict[URIRef, FlagReactionModel]
     event_reaction_maps: dict[URIRef, set[URIRef]]
@@ -81,8 +83,8 @@ class EventLoopModel(ModelBase):
     def __init__(self, el_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=el_id, graph=graph)
 
-        self.events_triggered = {}
-        self.flag_values = {}
+        self.events = set()
+        self.flags = set()
         self.event_reactions = {}
         self.event_reaction_maps = {}
         self.flag_reactions = {}
@@ -92,20 +94,20 @@ class EventLoopModel(ModelBase):
             assert isinstance(evt_uri, URIRef), (
                 f"Event '{evt_uri}' is not of type URIRef: {type(evt_uri)}"
             )
-            self.events_triggered[evt_uri] = False
+            self.events.add(evt_uri)
 
         for flg_uri in graph.objects(subject=self.id, predicate=URI_EL_PRED_HAS_FLG):
             assert isinstance(flg_uri, URIRef), (
                 f"Flag '{flg_uri}' is not of type URIRef: {type(flg_uri)}"
             )
-            self.flag_values[flg_uri] = False
+            self.flags.add(flg_uri)
 
         for evt_re_uri in graph.objects(subject=self.id, predicate=URI_EL_PRED_HAS_EVT_REACT):
             assert isinstance(evt_re_uri, URIRef), (
                 f"EventReaction '{evt_re_uri}' is not of type URIRef: {type(evt_re_uri)}"
             )
             evt_re_model = EventReactionModel(reaction_id=evt_re_uri, graph=graph)
-            assert evt_re_model.event_id in self.events_triggered, (
+            assert evt_re_model.event_id in self.events, (
                 f"'{evt_re_model.id}' reacts to event '{evt_re_model.event_id}', which is not in event loop '{self.id}'"
             )
             self.event_reactions[evt_re_model.id] = evt_re_model
@@ -119,7 +121,7 @@ class EventLoopModel(ModelBase):
                 f"FlagReaction '{flg_re_uri}' is not of type URIRef: {type(flg_re_uri)}"
             )
             flg_re_model = FlagReactionModel(reaction_id=flg_re_uri, graph=graph)
-            assert flg_re_model.flag_id in self.flag_values, (
+            assert flg_re_model.flag_id in self.flags, (
                 f"'{flg_re_model.id}' reacts to flag '{flg_re_model.flag_id}', which is not in event loop '{self.id}'"
             )
             self.flag_reactions[flg_re_model.id] = flg_re_model
