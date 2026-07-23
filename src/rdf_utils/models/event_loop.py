@@ -1,21 +1,14 @@
 # SPDX-License-Identifier: MPL-2.0
 from rdflib import Graph, URIRef
 from rdf_utils.models.common import ModelBase
-from rdf_utils.namespace import NS_MM_EL, NS_OWL_TIME
-
-
-URI_EL_TYPE_EVT_LOOP = NS_MM_EL["EventLoop"]
-URI_EL_TYPE_EVT = NS_OWL_TIME["Instant"]
-URI_EL_TYPE_FLG = NS_MM_EL["Flag"]
-URI_EL_TYPE_EVT_REACT = NS_MM_EL["EventReaction"]
-URI_EL_TYPE_FLG_REACT = NS_MM_EL["FlagReaction"]
-URI_EL_PRED_EVT_LOOP = NS_MM_EL["event-loop"]
-URI_EL_PRED_REF_EVT = NS_MM_EL["ref-event"]
-URI_EL_PRED_HAS_EVT = NS_MM_EL["has-event"]
-URI_EL_PRED_REF_FLG = NS_MM_EL["ref-flag"]
-URI_EL_PRED_HAS_FLG = NS_MM_EL["has-flag"]
-URI_EL_PRED_HAS_EVT_REACT = NS_MM_EL["has-evt-reaction"]
-URI_EL_PRED_HAS_FLG_REACT = NS_MM_EL["has-flg-reaction"]
+from rdf_utils.models.vocab import (
+    URI_EL_PRED_HAS_EVT,
+    URI_EL_PRED_HAS_EVT_REACT,
+    URI_EL_PRED_HAS_FLG,
+    URI_EL_PRED_HAS_FLG_REACT,
+    URI_EL_PRED_REF_EVT,
+    URI_EL_PRED_REF_FLG,
+)
 
 
 class EventReactionModel(ModelBase):
@@ -82,6 +75,8 @@ class EventLoopModel(ModelBase):
     flag_values: dict[URIRef, bool]
     event_reactions: dict[URIRef, EventReactionModel]
     flag_reactions: dict[URIRef, FlagReactionModel]
+    event_reaction_maps: dict[URIRef, set[URIRef]]
+    flag_reaction_maps: dict[URIRef, set[URIRef]]
 
     def __init__(self, el_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=el_id, graph=graph)
@@ -89,7 +84,9 @@ class EventLoopModel(ModelBase):
         self.events_triggered = {}
         self.flag_values = {}
         self.event_reactions = {}
+        self.event_reaction_maps = {}
         self.flag_reactions = {}
+        self.flag_reaction_maps = {}
 
         for evt_uri in graph.objects(subject=self.id, predicate=URI_EL_PRED_HAS_EVT):
             assert isinstance(evt_uri, URIRef), (
@@ -111,7 +108,11 @@ class EventLoopModel(ModelBase):
             assert evt_re_model.event_id in self.events_triggered, (
                 f"'{evt_re_model.id}' reacts to event '{evt_re_model.event_id}', which is not in event loop '{self.id}'"
             )
-            self.event_reactions[evt_re_model.event_id] = evt_re_model
+            self.event_reactions[evt_re_model.id] = evt_re_model
+            evt_id = evt_re_model.event_id
+            if evt_id not in self.event_reaction_maps:
+                self.event_reaction_maps[evt_id] = set()
+            self.event_reaction_maps[evt_id].add(evt_re_model.id)
 
         for flg_re_uri in graph.objects(subject=self.id, predicate=URI_EL_PRED_HAS_FLG_REACT):
             assert isinstance(flg_re_uri, URIRef), (
@@ -121,4 +122,8 @@ class EventLoopModel(ModelBase):
             assert flg_re_model.flag_id in self.flag_values, (
                 f"'{flg_re_model.id}' reacts to flag '{flg_re_model.flag_id}', which is not in event loop '{self.id}'"
             )
-            self.flag_reactions[flg_re_model.flag_id] = flg_re_model
+            self.flag_reactions[flg_re_model.id] = flg_re_model
+            flag_id = flg_re_model.flag_id
+            if flag_id not in self.flag_reaction_maps:
+                self.flag_reaction_maps[flag_id] = set()
+            self.flag_reaction_maps[flag_id].add(flg_re_model.id)

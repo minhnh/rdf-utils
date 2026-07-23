@@ -5,6 +5,7 @@ from rdf_utils.namespace import (
     NS_MM_DYN_COORD,
     NS_MM_DYN_ENT,
     NS_MM_EXEC,
+    NS_MM_EL,
     NS_MM_GEOM,
     NS_MM_GEOM_COORD,
     NS_MM_GEOM_REL,
@@ -14,7 +15,22 @@ from rdf_utils.namespace import (
     NS_MM_QUDT,
     NS_MM_QUDT_QTY,
     NS_MM_QUDT_UNIT,
+    NS_OWL_TIME,
 )
+
+# Event loop
+URI_EL_TYPE_EVT_LOOP = NS_MM_EL["EventLoop"]
+URI_EL_TYPE_EVT = NS_OWL_TIME["Instant"]
+URI_EL_TYPE_FLG = NS_MM_EL["Flag"]
+URI_EL_TYPE_EVT_REACT = NS_MM_EL["EventReaction"]
+URI_EL_TYPE_FLG_REACT = NS_MM_EL["FlagReaction"]
+URI_EL_PRED_EVT_LOOP = NS_MM_EL["event-loop"]
+URI_EL_PRED_REF_EVT = NS_MM_EL["ref-event"]
+URI_EL_PRED_HAS_EVT = NS_MM_EL["has-event"]
+URI_EL_PRED_REF_FLG = NS_MM_EL["ref-flag"]
+URI_EL_PRED_HAS_FLG = NS_MM_EL["has-flag"]
+URI_EL_PRED_HAS_EVT_REACT = NS_MM_EL["has-evt-reaction"]
+URI_EL_PRED_HAS_FLG_REACT = NS_MM_EL["has-flg-reaction"]
 
 # Units
 URI_QUDT_QK_MASS = NS_MM_QUDT_QTY["Mass"]
@@ -97,9 +113,7 @@ URI_KC_TYPE_KC = NS_MM_KC["KinematicChain"]
 URI_KC_TYPE_SERIAL = NS_MM_KC["SerialComposition"]
 URI_KC_TYPE_JOINT = NS_MM_KC["Joint"]
 URI_KC_TYPE_REVOLUTE_JOINT = NS_MM_KC["RevoluteJoint"]
-URI_KC_TYPE_REVOLUTE_JOINT_ORIENTED_AXIS = NS_MM_KC[
-    "RevoluteJointWithOrientedAxisOfRotation"
-]
+URI_KC_TYPE_REVOLUTE_JOINT_ORIENTED_AXIS = NS_MM_KC["RevoluteJointWithOrientedAxisOfRotation"]
 URI_KC_PRED_JOINTS = NS_MM_KC["joints"]
 URI_KC_PRED_BETWEEN_ATTACHMENTS = NS_MM_KC["between-attachments"]
 URI_KC_PRED_COMMON_AXIS = NS_MM_KC["common-axis"]

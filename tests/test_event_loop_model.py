@@ -1,10 +1,11 @@
 # SPDX-License-Identifier:  MPL-2.0
 import unittest
-from rdflib import Graph, URIRef
+from rdflib import Graph, RDF, URIRef
 from rdf_utils.resolver import install_resolver
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.namespace import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
-from rdf_utils.models.event_loop import (
+from rdf_utils.models.event_loop import EventLoopModel
+from rdf_utils.models.vocab import (
     URI_EL_TYPE_EVT_LOOP,
     URI_EL_TYPE_EVT,
     URI_EL_TYPE_EVT_REACT,
@@ -16,7 +17,6 @@ from rdf_utils.models.event_loop import (
     URI_EL_PRED_HAS_FLG,
     URI_EL_PRED_HAS_EVT_REACT,
     URI_EL_PRED_HAS_FLG_REACT,
-    EventLoopModel,
 )
 
 
@@ -128,6 +128,38 @@ class EventLoopModelTest(unittest.TestCase):
         wrong_flg_g.parse(data=EVT_LOOP_MODEL_WRONG_FLG, format="json-ld")
         with self.assertRaises(AssertionError, msg="not raised for reaction to a flag not in loop"):
             _ = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=wrong_flg_g)
+
+    def test_multiple_reactions_per_event_and_flag(self):
+        graph = Graph()
+        event = URIRef(f"{URI_TEST_EL}/event1")
+        flag = URIRef(f"{URI_TEST_EL}/flag1")
+        event_reactions = {
+            URIRef(f"{URI_TEST_EL}/evt_reaction1"),
+            URIRef(f"{URI_TEST_EL}/evt_reaction2"),
+        }
+        flag_reactions = {
+            URIRef(f"{URI_TEST_EL}/flg_reaction1"),
+            URIRef(f"{URI_TEST_EL}/flg_reaction2"),
+        }
+
+        graph.add((URIREF_TEST_LOOP, RDF.type, URI_EL_TYPE_EVT_LOOP))
+        graph.add((URIREF_TEST_LOOP, URI_EL_PRED_HAS_EVT, event))
+        graph.add((URIREF_TEST_LOOP, URI_EL_PRED_HAS_FLG, flag))
+        for reaction in event_reactions:
+            graph.add((reaction, RDF.type, URI_EL_TYPE_EVT_REACT))
+            graph.add((reaction, URI_EL_PRED_REF_EVT, event))
+            graph.add((URIREF_TEST_LOOP, URI_EL_PRED_HAS_EVT_REACT, reaction))
+        for reaction in flag_reactions:
+            graph.add((reaction, RDF.type, URI_EL_TYPE_FLG_REACT))
+            graph.add((reaction, URI_EL_PRED_REF_FLG, flag))
+            graph.add((URIREF_TEST_LOOP, URI_EL_PRED_HAS_FLG_REACT, reaction))
+
+        model = EventLoopModel(el_id=URIREF_TEST_LOOP, graph=graph)
+
+        self.assertEqual(set(model.event_reactions), event_reactions)
+        self.assertEqual(model.event_reaction_maps[event], event_reactions)
+        self.assertEqual(set(model.flag_reactions), flag_reactions)
+        self.assertEqual(model.flag_reaction_maps[flag], flag_reactions)
 
 
 if __name__ == "__main__":
