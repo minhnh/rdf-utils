@@ -1,15 +1,28 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 import unittest
 import numpy as np
-from rdflib import Graph, Namespace
-from rdf_utils.constraints import check_shacl_constraints
+from rdflib import BNode, RDF, Graph, Namespace
+from rdf_utils.constraints import ConstraintViolation, check_shacl_constraints
 from rdf_utils.models.geometry import (
     URI_QUDT_UNIT_DEG,
     OrientCoordModel,
     PoseCoordModel,
+    find_orientation_path,
+    find_pose_path,
+    find_position_path,
+    find_relation_path,
     get_coord_vectorxyz,
     get_euler_angles_abg,
     get_scipy_rotation,
+)
+from rdf_utils.models.vocab import (
+    URI_GEOM_PRED_OF,
+    URI_GEOM_PRED_WRT,
+    URI_GEOM_TYPE_FRAME,
+    URI_GEOM_TYPE_ORIENT,
+    URI_GEOM_TYPE_POINT,
+    URI_GEOM_TYPE_POSE,
+    URI_GEOM_TYPE_POSITION,
 )
 from rdf_utils.resolver import install_resolver
 from rdf_utils.namespace import (
@@ -137,3 +150,90 @@ class GeometryTest(unittest.TestCase):
         assert orientation_model.as_seen_by == URI_TEST_FRAME_REF
         assert orientation_model.of.origin == URI_TEST_BODY_ORIGIN
         assert orientation_model.wrt.origin == URI_TEST_REF_ORIGIN
+
+    def test_relation_paths(self):
+        wrappers = {
+            URI_GEOM_TYPE_POSITION: (find_position_path, URI_GEOM_TYPE_POINT),
+            URI_GEOM_TYPE_ORIENT: (find_orientation_path, URI_GEOM_TYPE_FRAME),
+            URI_GEOM_TYPE_POSE: (find_pose_path, URI_GEOM_TYPE_FRAME),
+        }
+        for relation_type, (wrapper, entity_type) in wrappers.items():
+            with self.subTest(relation_type=relation_type):
+                graph = Graph()
+                prefix = str(relation_type).rsplit("#", 1)[-1]
+                first, middle, last, missing = (
+                    NS_TEST[f"{prefix}-{name}"] for name in ("first", "middle", "last", "missing")
+                )
+                relation_1 = NS_TEST[f"{prefix}-1"]
+                relation_2 = NS_TEST[f"{prefix}-2"]
+                for entity in (first, middle, last, missing):
+                    graph.add((entity, RDF.type, entity_type))
+                for relation, of_entity, wrt_entity in (
+                    (relation_1, first, middle),
+                    (relation_2, middle, last),
+                ):
+                    graph.add((relation, RDF.type, relation_type))
+                    graph.add((relation, URI_GEOM_PRED_OF, of_entity))
+                    graph.add((relation, URI_GEOM_PRED_WRT, wrt_entity))
+
+                expected = [relation_1, relation_2]
+                assert find_relation_path(first, last, relation_type, graph) == expected
+                assert wrapper(first, last, graph) == expected
+                assert wrapper(first, first, graph) == []
+                assert wrapper(last, first, graph) is None
+                assert wrapper(first, missing, graph) is None
+
+    def test_relation_path_cycles_and_type_isolation(self):
+        graph = Graph()
+        first, left, right, last = (
+            NS_TEST[f"path-{name}"] for name in ("first", "left", "right", "last")
+        )
+        for frame in (first, left, right, last):
+            graph.add((frame, RDF.type, URI_GEOM_TYPE_FRAME))
+
+        edges = (
+            (NS_TEST["pose-a1"], first, left),
+            (NS_TEST["pose-a2"], left, last),
+            (NS_TEST["pose-b1"], first, right),
+            (NS_TEST["pose-b2"], right, last),
+            (NS_TEST["pose-cycle"], left, first),
+        )
+        for relation, of_frame, wrt_frame in edges:
+            graph.add((relation, RDF.type, URI_GEOM_TYPE_POSE))
+            graph.add((relation, URI_GEOM_PRED_OF, of_frame))
+            graph.add((relation, URI_GEOM_PRED_WRT, wrt_frame))
+
+        orientation = NS_TEST["orientation-direct"]
+        graph.add((orientation, RDF.type, URI_GEOM_TYPE_ORIENT))
+        graph.add((orientation, URI_GEOM_PRED_OF, first))
+        graph.add((orientation, URI_GEOM_PRED_WRT, last))
+
+        assert find_pose_path(first, last, graph) in (
+            [NS_TEST["pose-a1"], NS_TEST["pose-a2"]],
+            [NS_TEST["pose-b1"], NS_TEST["pose-b2"]],
+        )
+        assert find_orientation_path(first, last, graph) == [orientation]
+
+    def test_relation_path_errors(self):
+        graph = Graph()
+        first = NS_TEST["bad-first"]
+        last = NS_TEST["bad-last"]
+        extra = NS_TEST["bad-extra"]
+        with self.assertRaises(ConstraintViolation):
+            find_pose_path(BNode(), last, graph)
+
+        relation = NS_TEST["bad-pose"]
+        graph.add((relation, RDF.type, URI_GEOM_TYPE_POSE))
+        graph.add((relation, URI_GEOM_PRED_OF, first))
+        graph.add((relation, URI_GEOM_PRED_WRT, last))
+        graph.add((relation, URI_GEOM_PRED_WRT, extra))
+        with self.assertRaises(ConstraintViolation):
+            find_pose_path(first, last, graph)
+
+        graph = Graph()
+        relation = BNode()
+        graph.add((relation, RDF.type, URI_GEOM_TYPE_POSE))
+        graph.add((relation, URI_GEOM_PRED_OF, first))
+        graph.add((relation, URI_GEOM_PRED_WRT, last))
+        with self.assertRaises(ConstraintViolation):
+            find_pose_path(first, last, graph)
