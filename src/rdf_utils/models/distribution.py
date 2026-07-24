@@ -193,7 +193,9 @@ def distrib_from_sampled_quantity(quantity_id: URIRef, graph: Graph) -> Distribu
 
 
 def sample_from_distrib(
-    distrib: DistributionModel, size: int | tuple[int, ...] | None = None
+    distrib: DistributionModel,
+    size: int | tuple[int, ...] | None = None,
+    rng: np.random.Generator | None = None,
 ) -> Any:
     """Sample from a distribution model based on its type.
 
@@ -202,6 +204,7 @@ def sample_from_distrib(
         size: Size of the sample, which matches size argument in numpy.random calls.
               Will be ignored for random rotations at the moment. For uniform and normal distribs,
               tuple size should have last dimension matching the distrib's dimension.
+        rng: optional NumPy random generator
 
     Returns:
         distribution sample with dimension matching given size
@@ -212,7 +215,9 @@ def sample_from_distrib(
         except ImportError:
             raise RuntimeError("to sample random rotations, 'scipy' must be installed")
 
-        return Rotation.random()
+        return Rotation.random(rng=rng)
+
+    random = rng if rng is not None else np.random
 
     if URI_DISTRIB_TYPE_UNIFORM in distrib.types:
         lower_bounds = distrib.get_attr(key=URI_DISTRIB_PRED_LOWER)
@@ -220,7 +225,7 @@ def sample_from_distrib(
         assert isinstance(lower_bounds, list) and isinstance(upper_bounds, list), (
             f"Uniform distrib '{distrib.id}' does not have valid lower & upper bounds"
         )
-        return np.random.uniform(lower_bounds, upper_bounds, size=size)
+        return random.uniform(lower_bounds, upper_bounds, size=size)
 
     if URI_DISTRIB_TYPE_NORMAL in distrib.types:
         dim = distrib.get_attr(key=URI_DISTRIB_PRED_DIM)
@@ -238,13 +243,13 @@ def sample_from_distrib(
             assert isinstance(std, float), (
                 f"Normal distrib '{distrib.id}' does not have valid standard deviation: {std}"
             )
-            return np.random.normal(loc=mean[0], scale=std, size=size)
+            return random.normal(loc=mean[0], scale=std, size=size)
 
         # multivariate normal
         cov = distrib.get_attr(key=URI_DISTRIB_PRED_COV)
         assert isinstance(cov, np.ndarray), (
             f"Normal distrib '{distrib.id}' does not have valid covariance: {cov}"
         )
-        return np.random.multivariate_normal(mean=mean, cov=cov, size=size)
+        return random.multivariate_normal(mean=mean, cov=cov, size=size)
 
     raise RuntimeError(f"Distrib '{distrib.id}' has unhandled types: {distrib.types}")

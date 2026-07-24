@@ -1,5 +1,6 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from rdflib import RDF, BNode, Graph, Literal, Namespace
@@ -9,6 +10,7 @@ from rdf_utils.models.geometry import (
     URI_QUDT_UNIT_DEG,
     OrientCoordModel,
     PoseCoordModel,
+    PositionCoordModel,
     find_acceleration_twist_path,
     find_orientation_path,
     find_pose_path,
@@ -17,10 +19,12 @@ from rdf_utils.models.geometry import (
     find_velocity_twist_path,
     get_coord_vectorxyz,
     get_euler_angles_abg,
+    get_or_sample_coord_vectorxyz,
     get_scipy_rotation,
     get_translation_xyz,
 )
 from rdf_utils.models.vocab import (
+    URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_SEEN_BY,
@@ -320,6 +324,40 @@ class GeometryTest(unittest.TestCase):
         )
         with self.assertRaises(ConstraintViolation):
             get_translation_xyz(first, last, graph)
+
+        graph.remove((second_coordinate, URI_GEOM_PRED_SEEN_BY, None))
+        graph.add((second_coordinate, URI_GEOM_PRED_SEEN_BY, frame))
+        for predicate in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z):
+            graph.remove((first_coordinate, predicate, None))
+        graph.add((first_coordinate, RDF.type, URI_DISTRIB_TYPE_SAMPLED_QUANTITY))
+        with self.assertRaises(ValueError):
+            get_translation_xyz(first, last, graph)
+
+        sample = np.array((0.5, 1.5, 2.5))
+        rng = np.random.default_rng(42)
+        sampled_coordinate = PositionCoordModel(first_coordinate, graph)
+        with (
+            patch("rdf_utils.models.geometry.distrib_from_sampled_quantity") as get_distrib,
+            patch("rdf_utils.models.geometry.sample_from_distrib", return_value=sample),
+        ):
+            get_distrib.return_value.get_attr.return_value = 2
+            with self.assertRaises(ConstraintViolation):
+                get_or_sample_coord_vectorxyz(sampled_coordinate, graph, rng=rng)
+            get_distrib.return_value.get_attr.return_value = 3
+            assert get_or_sample_coord_vectorxyz(sampled_coordinate, graph, rng=rng) == tuple(
+                sample
+            )
+            assert graph.value(first_coordinate, URI_GEOM_PRED_X) is None
+            expected = tuple(
+                sampled + explicit for sampled, explicit in zip(sample, translations[1])
+            )
+            assert (
+                get_translation_xyz(first, last, graph, rng=rng, materialize_samples=True)
+                == expected
+            )
+        assert get_coord_vectorxyz(PositionCoordModel(first_coordinate, graph), graph) == tuple(
+            sample
+        )
 
     def test_relation_path_errors(self):
         graph = Graph()

@@ -5,12 +5,16 @@ Module for processing geometry models using concepts from
 [SECORO](https://github.com/secorolab/metamodels/) group.
 """
 
+import numpy as np
 from rdflib import RDF, Graph, Literal, URIRef
 from scipy.spatial.transform import Rotation
 
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.common import ModelBase
+from rdf_utils.models.distribution import distrib_from_sampled_quantity, sample_from_distrib
 from rdf_utils.models.vocab import (
+    URI_DISTRIB_PRED_DIM,
+    URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
     URI_GEOM_PRED_ALPHA,
     URI_GEOM_PRED_AXES_SEQ,
     URI_GEOM_PRED_BETA,
@@ -441,18 +445,27 @@ def find_acceleration_twist_path(
 
 
 def get_translation_xyz(
-    of_point: URIRef, wrt_point: URIRef, graph: Graph
+    of_point: URIRef,
+    wrt_point: URIRef,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_samples: bool = False,
 ) -> tuple[float, float, float] | None:
     """Get the XYZ translation between two points.
 
     VectorXYZ PositionCoordinates along the path must share one
     ``as-seen-by`` frame and one QUDT unit. Other coordinate representations
-    are ignored.
+    are ignored. Without ``rng``, only explicit XYZ values are read and their
+    lookup errors are propagated. With ``rng``, missing XYZ values may be
+    sampled from a SampledQuantity distribution.
 
     Parameters:
         of_point: point at the start of the path
         wrt_point: point at the end of the path
         graph: RDF graph containing the Position relations and coordinates
+        rng: optional random generator that enables sampled coordinates
+        materialize_samples: whether to write newly sampled XYZ values to the
+                             graph; ignored when no sampling occurs
 
     Returns:
         summed XYZ translation, a zero vector for the same point, or None when
@@ -502,10 +515,17 @@ def get_translation_xyz(
                 "geometry",
                 "PositionCoordinates in a path must share one as-seen-by frame",
             )
-        translation = [
-            total + value
-            for total, value in zip(translation, get_coord_vectorxyz(coordinate, graph))
-        ]
+        if rng is None:
+            values = get_coord_vectorxyz(coordinate, graph)
+        else:
+            values = get_or_sample_coord_vectorxyz(
+                coordinate,
+                graph,
+                rng=rng,
+                materialize_sample=materialize_samples,
+            )
+
+        translation = [total + value for total, value in zip(translation, values)]
 
     return (translation[0], translation[1], translation[2])
 
@@ -520,26 +540,108 @@ def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, fl
     Returns:
         tuple containing (x, y, z) coordinates
     """
-    assert URI_GEOM_TYPE_VECTOR_XYZ in coord_model.types, (
-        f"Coordinate '{coord_model.id}' is not of type 'VectorXYZ'"
-    )
+    if URI_GEOM_TYPE_VECTOR_XYZ not in coord_model.types:
+        raise ValueError(f"Coordinate '{coord_model.id}' is not of type 'VectorXYZ'")
 
     x_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_X)
-    assert isinstance(x_node, Literal) and isinstance(x_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'x' property of type float: {x_node}"
-    )
+    if x_node is None:
+        raise ValueError(f"Coordinate '{coord_model.id}' has no 'x' property")
+    if not isinstance(x_node, Literal) or not isinstance(x_node.value, float):
+        raise TypeError(
+            f"Coordinate '{coord_model.id}' does not have a 'x' property of type float: {x_node}"
+        )
 
     y_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_Y)
-    assert isinstance(y_node, Literal) and isinstance(y_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'y' property of type float: {y_node}"
-    )
+    if y_node is None:
+        raise ValueError(f"Coordinate '{coord_model.id}' has no 'y' property")
+    if not isinstance(y_node, Literal) or not isinstance(y_node.value, float):
+        raise TypeError(
+            f"Coordinate '{coord_model.id}' does not have a 'y' property of type float: {y_node}"
+        )
 
     z_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_Z)
-    assert isinstance(z_node, Literal) and isinstance(z_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'z' property of type float: {z_node}"
-    )
+    if z_node is None:
+        raise ValueError(f"Coordinate '{coord_model.id}' has no 'z' property")
+    if not isinstance(z_node, Literal) or not isinstance(z_node.value, float):
+        raise TypeError(
+            f"Coordinate '{coord_model.id}' does not have a 'z' property of type float: {z_node}"
+        )
 
     return (x_node.value, y_node.value, z_node.value)
+
+
+def set_coord_vectorxyz(
+    coord_model: ModelBase,
+    values: tuple[float, float, float],
+    graph: Graph,
+) -> None:
+    """Set coordinates for a VectorXYZ model.
+
+    Parameters:
+        coord_model: coordinate model object
+        values: x, y, and z coordinate values
+        graph: RDF graph to update
+    """
+    if URI_GEOM_TYPE_VECTOR_XYZ not in coord_model.types or len(values) != 3:
+        raise ConstraintViolation("geometry", "expected three values for a VectorXYZ model")
+    for predicate, value in zip((URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z), values):
+        graph.set((coord_model.id, predicate, Literal(float(value))))
+
+
+def get_or_sample_coord_vectorxyz(
+    coord_model: ModelBase,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_sample: bool = False,
+) -> tuple[float, float, float]:
+    """Get or sample coordinates for a VectorXYZ model.
+
+    Explicit XYZ values take precedence. When they are absent, a
+    SampledQuantity requires ``rng`` and a three-dimensional distribution.
+
+    Parameters:
+        coord_model: coordinate model object
+        graph: RDF graph containing the coordinate or distribution
+        rng: random generator required for a sampled coordinate
+        materialize_sample: whether to write newly sampled values to the graph
+
+    Returns:
+        tuple containing (x, y, z) coordinates
+    """
+    try:
+        return get_coord_vectorxyz(coord_model, graph)
+    except ValueError:
+        if (
+            URI_GEOM_TYPE_VECTOR_XYZ not in coord_model.types
+            or URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types
+        ):
+            raise
+
+    if rng is None:
+        raise ConstraintViolation(
+            "geometry", f"Coordinate {coord_model.id} requires a random generator"
+        )
+
+    distribution = distrib_from_sampled_quantity(coord_model.id, graph)
+    dimension = distribution.get_attr(URI_DISTRIB_PRED_DIM)
+    if dimension != 3:
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} distribution must have dimension 3, found {dimension}",
+        )
+
+    sample = np.asarray(sample_from_distrib(distribution, rng=rng), dtype=float)
+    if sample.shape != (3,):
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} sample must have shape (3,), found {sample.shape}",
+        )
+
+    values = (float(sample[0]), float(sample[1]), float(sample[2]))
+    if materialize_sample:
+        set_coord_vectorxyz(coord_model, values, graph)
+
+    return values
 
 
 def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> tuple[str, bool]:
