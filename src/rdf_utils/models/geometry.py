@@ -6,18 +6,23 @@ Module for processing geometry models using concepts from
 """
 
 import numpy as np
-from rdflib import RDF, Graph, Literal, URIRef
+from rdflib import RDF, BNode, Graph, Literal, URIRef
 from scipy.spatial.transform import Rotation
 
+from rdf_utils.collection import add_literal_list_pred, load_list_re
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.distribution import distrib_from_sampled_quantity, sample_from_distrib
 from rdf_utils.models.vocab import (
     URI_DISTRIB_PRED_DIM,
     URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
+    URI_DISTRIB_TYPE_UNIFORM_ROT,
     URI_GEOM_PRED_ALPHA,
     URI_GEOM_PRED_AXES_SEQ,
     URI_GEOM_PRED_BETA,
+    URI_GEOM_PRED_DIRECTION_COSINE_X,
+    URI_GEOM_PRED_DIRECTION_COSINE_Y,
+    URI_GEOM_PRED_DIRECTION_COSINE_Z,
     URI_GEOM_PRED_GAMMA,
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_ORIENT,
@@ -31,6 +36,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_Z,
     URI_GEOM_TYPE_ACCEL_TWIST,
     URI_GEOM_TYPE_ANGLES_ABG,
+    URI_GEOM_TYPE_DIRECTION_COSINE_XYZ,
     URI_GEOM_TYPE_EULER_ANGLES,
     URI_GEOM_TYPE_EXTRINSIC,
     URI_GEOM_TYPE_INTRINSIC,
@@ -678,7 +684,7 @@ def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> t
 
 def get_euler_angles_abg(
     coord_model: IFrameRelationCoord, graph: Graph
-) -> tuple[str, bool, URIRef, tuple[float, float, float]]:
+) -> tuple[str, bool, URIRef, tuple[float, float, float]] | None:
     """Extract coordinates for a AnglesAlphaBetaGamma model.
 
     Parameters:
@@ -691,6 +697,7 @@ def get_euler_angles_abg(
         - whether the rotation is intrinsic
         - unit of the angle values (degrees or radians)
         - angle values
+        or None when no values are present
     """
     assert URI_GEOM_TYPE_ANGLES_ABG in coord_model.types, (
         f"coord '{coord_model.id}' does not have type 'AnglesAlphaBetaGamma'"
@@ -698,55 +705,237 @@ def get_euler_angles_abg(
 
     seq, is_intrinsic = get_euler_angles_params(coord_model=coord_model, graph=graph)
 
-    a_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_ALPHA)
-    assert isinstance(a_node, Literal) and isinstance(a_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'alpha' property of type float: {a_node}"
-    )
-
-    b_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_BETA)
-    assert isinstance(b_node, Literal) and isinstance(b_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'beta' property of type float: {b_node}"
-    )
-
-    g_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_GAMMA)
-    assert isinstance(g_node, Literal) and isinstance(g_node.value, float), (
-        f"Coordinate '{coord_model.id}' does not have a 'gamma' property of type float: {g_node}"
-    )
-
-    angle_unit = None
-    for unit_node in graph.objects(subject=coord_model.id, predicate=URI_QUDT_PRED_UNIT):
-        assert isinstance(unit_node, URIRef), (
-            f"Coordinate '{coord_model.id}' does not ref a URI 'unit': {unit_node}"
-        )
-        if unit_node != URI_QUDT_UNIT_DEG and unit_node != URI_QUDT_UNIT_RAD:
+    angles = []
+    missing_value = False
+    for predicate in (URI_GEOM_PRED_ALPHA, URI_GEOM_PRED_BETA, URI_GEOM_PRED_GAMMA):
+        nodes = list(graph.objects(coord_model.id, predicate))
+        num_nodes = len(nodes)
+        if num_nodes == 0:
+            missing_value = True
             continue
-        angle_unit = unit_node
-        break
 
-    assert angle_unit is not None, f"Coordinate '{coord_model.id}' has invalid angle unit"
+        if num_nodes > 1:
+            raise ConstraintViolation(
+                "geometry",
+                f"Euler Coordinate {coord_model.id} must have zero or one value for {predicate}, found {num_nodes}",
+            )
 
-    return seq, is_intrinsic, angle_unit, (a_node.value, b_node.value, g_node.value)
+        if not isinstance(nodes[0], Literal) or not isinstance(nodes[0].toPython(), float):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one float for {predicate}, found: {nodes[0]}",
+            )
+        angles.append(float(nodes[0].toPython()))
+
+    if not angles:
+        return None
+
+    if missing_value:
+        # This implies one of the angles was skipped but not all
+        raise ConstraintViolation(
+            "geometry",
+            f"Euler Coordinate {coord_model.id} expected 0 or 3 values for alpha/beta/gamma, found {angles}",
+        )
+
+    angle_units = set(graph.objects(coord_model.id, URI_QUDT_PRED_UNIT)) & {
+        URI_QUDT_UNIT_DEG,
+        URI_QUDT_UNIT_RAD,
+    }
+    if len(angle_units) != 1:
+        raise ConstraintViolation(
+            "geometry",
+            f"Euler Coordinate '{coord_model.id}' must have one angle unit, found {angle_units}",
+        )
+
+    angle_unit = angle_units.pop()
+    assert isinstance(angle_unit, URIRef)
+
+    return seq, is_intrinsic, angle_unit, (angles[0], angles[1], angles[2])
 
 
-def get_scipy_rotation(coord_model: PoseCoordModel, graph: Graph) -> Rotation:
+def get_direction_cosines(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray | None:
+    """Extract a DirectionCosineXYZ matrix from a graph.
+
+    Parameters:
+        coord_model: pose or orientation coordinate model
+        graph: RDF graph to look for coordinate attributes
+
+    Returns:
+        3x3 direction-cosine matrix, or None when no values are present
+    """
+    if URI_GEOM_TYPE_DIRECTION_COSINE_XYZ not in coord_model.types:
+        raise ValueError(f"Coordinate '{coord_model.id}' is not a DirectionCosineXYZ")
+
+    predicates = (
+        URI_GEOM_PRED_DIRECTION_COSINE_X,
+        URI_GEOM_PRED_DIRECTION_COSINE_Y,
+        URI_GEOM_PRED_DIRECTION_COSINE_Z,
+    )
+    row_nodes_by_predicate = [list(graph.objects(coord_model.id, pred)) for pred in predicates]
+    if not any(row_nodes_by_predicate):
+        return None
+
+    rows = []
+    for predicate, row_nodes in zip(predicates, row_nodes_by_predicate):
+        if len(row_nodes) != 1 or not isinstance(row_nodes[0], BNode):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one RDF list for {predicate}",
+            )
+        try:
+            row = np.asarray(load_list_re(graph, row_nodes[0], parse_uri=False), dtype=float)
+        except (TypeError, ValueError, RuntimeError) as error:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} has invalid values for {predicate}"
+            ) from error
+        if row.shape != (3,) or not np.isfinite(row).all():
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have three finite values for {predicate}",
+            )
+        rows.append(row)
+
+    matrix = np.asarray(rows)
+    if not np.allclose(matrix @ matrix.T, np.eye(3)):
+        raise ConstraintViolation(
+            "geometry", f"Coordinate {coord_model.id} must be an orthogonal matrix"
+        )
+    return matrix
+
+
+def _orientation_representation(coord_model: IFrameRelationCoord) -> URIRef | None:
+    """Return the coordinate representation, rejecting incomplete or ambiguous typing."""
+    representations = coord_model.types & {
+        URI_GEOM_TYPE_EULER_ANGLES,
+        URI_GEOM_TYPE_DIRECTION_COSINE_XYZ,
+    }
+    if len(representations) > 1:
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} has multiple orientation reps: {representations}",
+        )
+    return representations.pop() if representations else None
+
+
+def get_scipy_rotation(coord_model: IFrameRelationCoord, graph: Graph) -> Rotation | None:
     """Parse orientation coordinate in a graph into a SciPy Rotation.
 
     Handles and convert different orientation coordinate types into a
     [SciPy Rotation](scipy.spatial.transform.Rotation)
 
     Parameters:
-        coord_model: coordinate model object, currently only handle PoseCoordModel
+        coord_model: pose or orientation coordinate model
         graph: RDF graph to look for coordinate attributes
 
     Returns:
         Corresponding [SciPy Rotation](scipy.spatial.transform.Rotation)
     """
-    if URI_GEOM_TYPE_ANGLES_ABG in coord_model.types:
-        seq, is_intrinsic, unit, angles = get_euler_angles_abg(coord_model=coord_model, graph=graph)
+    representation = _orientation_representation(coord_model)
+    if representation == URI_GEOM_TYPE_EULER_ANGLES:
+        values = get_euler_angles_abg(coord_model=coord_model, graph=graph)
+        if values is None:
+            return None
+
+        seq, is_intrinsic, unit, angles = values
         if is_intrinsic:
             seq = seq.upper()
-        return Rotation.from_euler(seq=seq, angles=angles, degrees=(unit == URI_QUDT_UNIT_DEG))
-    else:
-        raise RuntimeError(
-            f"unhandled orientation coordinate type for '{coord_model.id}', types: {coord_model.types}"
+        try:
+            return Rotation.from_euler(seq=seq, angles=angles, degrees=(unit == URI_QUDT_UNIT_DEG))
+        except ValueError as error:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} has invalid Euler values: {error}"
+            ) from error
+
+    if representation == URI_GEOM_TYPE_DIRECTION_COSINE_XYZ:
+        matrix = get_direction_cosines(coord_model, graph)
+        if matrix is None:
+            return None
+        try:
+            return Rotation.from_matrix(matrix)
+        except ValueError as error:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} has invalid direction cosines: {error}"
+            ) from error
+
+    return None
+
+
+def set_scipy_rotation(coord_model: IFrameRelationCoord, rotation: Rotation, graph: Graph) -> None:
+    """Write a SciPy Rotation using the coordinate's declared representation."""
+    representation = _orientation_representation(coord_model)
+    if representation == URI_GEOM_TYPE_EULER_ANGLES:
+        seq, is_intrinsic = get_euler_angles_params(coord_model, graph)
+        units = [
+            unit
+            for unit in graph.objects(coord_model.id, URI_QUDT_PRED_UNIT)
+            if unit in (URI_QUDT_UNIT_DEG, URI_QUDT_UNIT_RAD)
+        ]
+        if len(units) != 1:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} must have one angle unit"
+            )
+        angles = rotation.as_euler(
+            seq.upper() if is_intrinsic else seq,
+            degrees=units[0] == URI_QUDT_UNIT_DEG,
         )
+        for predicate, angle in zip(
+            (URI_GEOM_PRED_ALPHA, URI_GEOM_PRED_BETA, URI_GEOM_PRED_GAMMA), angles
+        ):
+            graph.set((coord_model.id, predicate, Literal(float(angle))))
+        return
+
+    if representation == URI_GEOM_TYPE_DIRECTION_COSINE_XYZ:
+        for predicate, row in zip(
+            (
+                URI_GEOM_PRED_DIRECTION_COSINE_X,
+                URI_GEOM_PRED_DIRECTION_COSINE_Y,
+                URI_GEOM_PRED_DIRECTION_COSINE_Z,
+            ),
+            rotation.as_matrix(),
+        ):
+            add_literal_list_pred(graph, coord_model.id, predicate, tuple(map(float, row)))
+        return
+
+    raise ConstraintViolation(
+        "geometry", f"Coordinate {coord_model.id} has no orientation representation"
+    )
+
+
+def get_or_sample_scipy_rotation(
+    coord_model: IFrameRelationCoord,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_sample: bool = False,
+) -> Rotation:
+    """Get an explicit orientation or sample a UniformRotation distribution."""
+    rotation = get_scipy_rotation(coord_model, graph)
+    if rotation is not None:
+        return rotation
+
+    if URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types:
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} is not a SampledQuantity and has no orientation values",
+        )
+
+    if rng is None:
+        raise ConstraintViolation(
+            "geometry", f"Sampled coordinate {coord_model.id} requires a random generator"
+        )
+
+    distribution = distrib_from_sampled_quantity(coord_model.id, graph)
+    if URI_DISTRIB_TYPE_UNIFORM_ROT not in distribution.types:
+        raise ConstraintViolation(
+            "geometry", f"Coordinate {coord_model.id} requires a UniformRotation distribution"
+        )
+
+    rotation = sample_from_distrib(distribution, rng=rng)
+    if not isinstance(rotation, Rotation):
+        raise ConstraintViolation(
+            "geometry", f"Coordinate {coord_model.id} distribution did not return a Rotation"
+        )
+
+    if materialize_sample:
+        set_scipy_rotation(coord_model, rotation, graph)
+
+    return rotation
