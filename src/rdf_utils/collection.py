@@ -1,7 +1,9 @@
 # SPDX-License-Identifier:  MPL-2.0
 from typing import Any
-from rdflib import Graph, Node, BNode, IdentifiedNode, Literal, URIRef
+
+from rdflib import BNode, Graph, IdentifiedNode, Literal, Node, URIRef
 from rdflib.collection import Collection
+
 from rdf_utils.uri import try_expand_curie
 
 

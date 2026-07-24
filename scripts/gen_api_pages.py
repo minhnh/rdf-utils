@@ -4,8 +4,8 @@ Taken from https://mkdocstrings.github.io/recipes/
 """
 
 from pathlib import Path
-import mkdocs_gen_files
 
+import mkdocs_gen_files
 
 root = Path(__file__).parent.parent
 src = root / "src"

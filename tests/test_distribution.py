@@ -1,15 +1,17 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 import unittest
+
 import numpy as np
 from rdflib import Graph, URIRef
+
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.models.distribution import (
     DistributionModel,
     distrib_from_sampled_quantity,
     sample_from_distrib,
 )
-from rdf_utils.resolver import install_resolver
 from rdf_utils.namespace import URL_MM_DISTRIB_JSON, URL_MM_DISTRIB_SHACL, URL_SECORO_M
+from rdf_utils.resolver import install_resolver
 
 # random distribution params
 NUM_SAMPLE = 20

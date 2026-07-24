@@ -1,24 +1,25 @@
 # SPDX-License-Identifier:  MPL-2.0
 import unittest
-from rdflib import Graph, RDF, URIRef
-from rdf_utils.resolver import install_resolver
+
+from rdflib import RDF, Graph, URIRef
+
 from rdf_utils.constraints import check_shacl_constraints
-from rdf_utils.namespace import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
 from rdf_utils.models.event_loop import EventLoopModel
 from rdf_utils.models.vocab import (
-    URI_EL_TYPE_EVT_LOOP,
+    URI_EL_PRED_HAS_EVT,
+    URI_EL_PRED_HAS_EVT_REACT,
+    URI_EL_PRED_HAS_FLG,
+    URI_EL_PRED_HAS_FLG_REACT,
+    URI_EL_PRED_REF_EVT,
+    URI_EL_PRED_REF_FLG,
     URI_EL_TYPE_EVT,
+    URI_EL_TYPE_EVT_LOOP,
     URI_EL_TYPE_EVT_REACT,
     URI_EL_TYPE_FLG,
     URI_EL_TYPE_FLG_REACT,
-    URI_EL_PRED_REF_EVT,
-    URI_EL_PRED_HAS_EVT,
-    URI_EL_PRED_REF_FLG,
-    URI_EL_PRED_HAS_FLG,
-    URI_EL_PRED_HAS_EVT_REACT,
-    URI_EL_PRED_HAS_FLG_REACT,
 )
-
+from rdf_utils.namespace import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
+from rdf_utils.resolver import install_resolver
 
 URI_TEST_EL = f"{URL_SECORO_M}/tests/el"
 URI_TEST_LOOP = f"{URI_TEST_EL}/test-loop"

@@ -1,10 +1,11 @@
 # SPDX-License-Identifier:  MPL-2.0
 import unittest
+
 from rdflib import RDF, BNode, Graph, URIRef
+
 from rdf_utils.collection import add_literal_list_pred, add_node_list_pred, load_list_re
 from rdf_utils.namespace import URL_SECORO_M
 from rdf_utils.uri import try_expand_curie
-
 
 CORRECT_LIST_MODEL = f"""
 {{

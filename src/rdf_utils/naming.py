@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 import re
 
-
 __FILENAME_REPLACEMENTS = {" ": "_", ":": "__", "/": "_"}
 __VAR_NAME_REPLACEMENTS = {"-": "_", ".": "_"}
 __VAR_NAME_REPLACEMENTS.update(__FILENAME_REPLACEMENTS)
@@ -25,8 +24,8 @@ def get_valid_name(name: str, replacement_dict: dict) -> str:
         'johns_portrait_in_2004.jpg'
     """
     s = str(name).strip()
-    for char in replacement_dict:
-        s = s.replace(char, replacement_dict[char])
+    for char, replacement in replacement_dict.items():
+        s = s.replace(char, replacement)
 
     # remove remaining characters
     s = re.sub(r"(?u)[^-\w.]", "", s)

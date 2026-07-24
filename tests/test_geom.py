@@ -1,7 +1,9 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 import unittest
+
 import numpy as np
-from rdflib import BNode, RDF, Graph, Namespace
+from rdflib import RDF, BNode, Graph, Namespace
+
 from rdf_utils.constraints import ConstraintViolation, check_shacl_constraints
 from rdf_utils.models.geometry import (
     URI_QUDT_UNIT_DEG,
@@ -24,19 +26,19 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSE,
     URI_GEOM_TYPE_POSITION,
 )
-from rdf_utils.resolver import install_resolver
 from rdf_utils.namespace import (
     URL_COMP_ROB2B,
     URL_MM_GEOM_COORD_JSON,
     URL_MM_GEOM_COORD_SECO_JSON,
     URL_MM_GEOM_JSON,
     URL_MM_GEOM_REL_JSON,
-    URL_MM_GEOM_SHACL_EXTS,
     URL_MM_GEOM_SHACL_COORD,
+    URL_MM_GEOM_SHACL_EXTS,
     URL_MM_GEOM_SHACL_REL,
     URL_MM_QUDT_JSON,
     URL_SECORO_M,
 )
+from rdf_utils.resolver import install_resolver
 
 NS_ROB = Namespace(f"{URL_COMP_ROB2B}/robots/kinova/gen3/7dof/")
 KINOVA_GEOM_MODEL = f"{URL_COMP_ROB2B}/robot-models/kinova/gen3/7dof/robot.geom.json"

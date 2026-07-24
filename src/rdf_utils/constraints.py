@@ -1,6 +1,6 @@
 # SPDX-License-Identifier:  MPL-2.0
-from rdflib import Dataset, Graph
 import pyshacl
+from rdflib import Dataset, Graph
 
 
 class ConstraintViolation(Exception):

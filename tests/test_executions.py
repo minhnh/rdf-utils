@@ -23,11 +23,11 @@ class ExecutionTest(unittest.TestCase):
         self.assertEqual(get_attr_path(self.model), "models/robot.urdf")
 
     def test_path_must_be_literal(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             get_path_of_node(self.graph, self.node)
 
         self.graph.add((self.node, URI_EXEC_PRED_PATH, URIRef("urn:test:not-a-path")))
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             get_path_of_node(self.graph, self.node)
 
     def test_non_path_model_is_ignored(self):

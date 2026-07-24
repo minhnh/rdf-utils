@@ -2,9 +2,9 @@
 import unittest
 from os.path import exists
 from urllib.request import urlopen
+
 from rdf_utils.namespace import URL_SECORO_MM
 from rdf_utils.resolver import install_resolver
-
 
 TEST_URL = f"{URL_SECORO_MM}/languages/python.json"
 

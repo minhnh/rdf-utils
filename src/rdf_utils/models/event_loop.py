@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 from rdflib import Graph, URIRef
+
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.vocab import (
     URI_EL_PRED_HAS_EVT,

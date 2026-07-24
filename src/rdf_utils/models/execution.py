@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 from typing import Any
+
 from rdflib import Graph, Literal, URIRef
+
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.vocab import URI_EXEC_PRED_PATH, URI_EXEC_TYPE_RES_PATH
 
@@ -16,11 +18,11 @@ def get_path_of_node(graph: Graph, node_id: URIRef) -> str:
         The node path as a string.
 
     Raises:
-        ValueError: If the node path is missing or is not an RDF literal.
+        TypeError: If the node path is missing or is not an RDF literal.
     """
     path = graph.value(subject=node_id, predicate=URI_EXEC_PRED_PATH)
     if not isinstance(path, Literal):
-        raise ValueError(
+        raise TypeError(
             f"node '{node_id.n3(graph.namespace_manager)}' has no edge 'path' to a literal: {path}"
         )
 

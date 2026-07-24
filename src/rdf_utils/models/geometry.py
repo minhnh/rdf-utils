@@ -5,8 +5,9 @@ Module for processing geometry models using concepts from
 [SECORO](https://github.com/secorolab/metamodels/) group.
 """
 
-from scipy.spatial.transform import Rotation
 from rdflib import RDF, Graph, Literal, URIRef
+from scipy.spatial.transform import Rotation
+
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.vocab import (

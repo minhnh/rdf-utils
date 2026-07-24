@@ -1,11 +1,11 @@
 # SPDX-License-Identifier:  MPL-2.0
-from typing import Iterable, Optional, Union
+from collections.abc import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from rdflib import URIRef
 from rdflib.namespace import NamespaceManager
-from rdflib.util import from_n3
 from rdflib.term import Node as RDFNode
+from rdflib.util import from_n3
 
 
 def iri_parent(value: URIRef | str) -> URIRef:
@@ -34,7 +34,7 @@ def iri_is_descendant(parent: URIRef | str, value: URIRef | str) -> bool:
 
 def try_expand_curie(
     ns_manager: NamespaceManager, curie_str: str, quiet: bool = False
-) -> Optional[URIRef]:
+) -> URIRef | None:
     """Execute rdflib `expand_curie` with exception handling.
 
     Parameters:
@@ -63,7 +63,7 @@ def try_expand_curie(
 
 def try_parse_n3_string(
     n3_str: str, ns_manager: NamespaceManager, quiet: bool = False
-) -> Optional[Union[RDFNode, str]]:
+) -> RDFNode | str | None:
     """Parse N3 string using rdflib.util.from_n3 with exception handling.
 
     Parameters:
@@ -77,7 +77,7 @@ def try_parse_n3_string(
     res = None
     try:
         res = from_n3(s=n3_str, nsm=ns_manager)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - rdflib may raise multiple exception types
         if not quiet:
             raise ValueError(f"Unable to parse N3 string '{n3_str}', got exception: {e}")
     return res
@@ -85,7 +85,7 @@ def try_parse_n3_string(
 
 def try_parse_n3_iterable(
     n3_str_iterable: Iterable[str], ns_manager: NamespaceManager, quiet: bool = False
-) -> Optional[list[Union[RDFNode, str]]]:
+) -> list[RDFNode | str] | None:
     """Parse an iterable of N3 strings using rdflib.util.from_n3 with exception handling.
 
     Parameters:

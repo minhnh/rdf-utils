@@ -1,7 +1,9 @@
 # SPDX-Litense-Identifier:  MPL-2.0
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
-from rdflib import BNode, Literal, URIRef, Graph
+from rdflib import BNode, Graph, Literal, URIRef
+
 from rdf_utils.collection import load_list_re
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.vocab import (
@@ -77,7 +79,7 @@ class DistributionModel(ModelBase):
                 graph=graph, first_node=upper_node, parse_uri=False, quiet=False
             )
         else:
-            raise RuntimeError(
+            raise TypeError(
                 f"Uniform distrib '{self.id}' has invalid type for :upper-bound: {type(upper_node)}"
             )
 
@@ -91,7 +93,7 @@ class DistributionModel(ModelBase):
                 graph=graph, first_node=lower_node, parse_uri=False, quiet=False
             )
         else:
-            raise RuntimeError(
+            raise TypeError(
                 f"Uniform distrib '{self.id}' has invalid type for lower-bound: {type(lower_node)}"
             )
 
@@ -140,7 +142,7 @@ class DistributionModel(ModelBase):
             )
             self.set_attr(key=URI_DISTRIB_PRED_MEAN, val=mean_vals)
         else:
-            raise RuntimeError(
+            raise TypeError(
                 f"Normal distrib '{self.id}' has invalid type for 'mean': {type(mean_node)}"
             )
 
@@ -191,7 +193,7 @@ def distrib_from_sampled_quantity(quantity_id: URIRef, graph: Graph) -> Distribu
 
 
 def sample_from_distrib(
-    distrib: DistributionModel, size: Optional[int | tuple[int, ...]] = None
+    distrib: DistributionModel, size: int | tuple[int, ...] | None = None
 ) -> Any:
     """Sample from a distribution model based on its type.
 

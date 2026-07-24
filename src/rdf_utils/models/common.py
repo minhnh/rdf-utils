@@ -1,6 +1,7 @@
 # SPDX-License-Identifier:  MPL-2.0
-from typing import Any, Optional, Protocol
-from rdflib import URIRef, Graph, RDF
+from typing import Any, Protocol
+
+from rdflib import RDF, Graph, URIRef
 
 
 def get_node_types(graph: Graph, node_id: URIRef) -> set[URIRef]:
@@ -20,7 +21,7 @@ def get_node_types(graph: Graph, node_id: URIRef) -> set[URIRef]:
     return types
 
 
-class ModelBase(object):
+class ModelBase:
     """Base object for RDF graph models, enforcing all models to have an URI as ID and types.
 
     Attributes:
@@ -38,7 +39,7 @@ class ModelBase(object):
     _attributes: dict[URIRef, Any]
 
     def __init__(
-        self, node_id: URIRef, graph: Optional[Graph] = None, types: Optional[set[URIRef]] = None
+        self, node_id: URIRef, graph: Graph | None = None, types: set[URIRef] | None = None
     ) -> None:
         self.id = node_id
         if types is not None:
@@ -60,7 +61,7 @@ class ModelBase(object):
         """Set an attribute value."""
         self._attributes[key] = val
 
-    def get_attr(self, key: URIRef) -> Optional[Any]:
+    def get_attr(self, key: URIRef) -> Any | None:
         """Get an attribute value."""
         if key not in self._attributes:
             return None
@@ -74,7 +75,7 @@ class AttrLoaderProtocol(Protocol):
     def __call__(self, graph: Graph, model: ModelBase, **kwargs: Any) -> None: ...
 
 
-class ModelLoader(object):
+class ModelLoader:
     """Class for dynamically adding functions to load different model attributes."""
 
     _loaders: list[AttrLoaderProtocol]

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 """Utilites for caching file contents"""
-from socket import _GLOBAL_DEFAULT_TIMEOUT
-import urllib.request
 
+import urllib.request
+from socket import _GLOBAL_DEFAULT_TIMEOUT
 
 __FILE_LOADER_CACHE = {}
 __URL_CONTENT_CACHE = {}

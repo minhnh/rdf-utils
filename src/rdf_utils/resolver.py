@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: MPL-2.0
 # Inspired by https://github.com/comp-rob2b/kindyngen/ (kindyngen.utility.resolver)
-from socket import _GLOBAL_DEFAULT_TIMEOUT
-from typing import Optional
-from os.path import join
-import platformdirs
 import pathlib
 import urllib.request
 import urllib.response
 from email.message import EmailMessage
-from rdf_utils.namespace import URL_SECORO, URL_COMP_ROB2B
-from rdf_utils import __version__
+from os.path import join
+from socket import _GLOBAL_DEFAULT_TIMEOUT
 
+import platformdirs
+
+from rdf_utils import __version__
+from rdf_utils.namespace import URL_COMP_ROB2B, URL_SECORO
 
 PKG_CACHE_ROOT = join(platformdirs.user_cache_dir(), "rdf-utils")
 
@@ -45,7 +45,7 @@ class IriToFileResolver(urllib.request.OpenerDirector):
         elif isinstance(fullurl, urllib.request.Request):
             url_req = fullurl
         else:
-            raise RuntimeError(
+            raise TypeError(
                 f"expected URL of type 'str' or 'urllib.request.Request', got type '{type(fullurl)}'"
             )
 
@@ -74,9 +74,11 @@ class IriToFileResolver(urllib.request.OpenerDirector):
                 if not self._quiet:
                     print(f"Dowloading '{url}' & caching to '{parent_path}'")
 
-                with self.default_opener.open(url_req, data=data, timeout=timeout) as url_data:
-                    with path.open("wb") as cache_file:
-                        cache_file.write(url_data.read())
+                with (
+                    self.default_opener.open(url_req, data=data, timeout=timeout) as url_data,
+                    path.open("wb") as cache_file,
+                ):
+                    cache_file.write(url_data.read())
                 assert path.exists(), f"File '{path}' not cached for URL '{url_req.full_url}'"
 
             # Open the file and wrap it in an urllib response
@@ -92,8 +94,8 @@ class IriToFileResolver(urllib.request.OpenerDirector):
 
 
 def install_resolver(
-    resolver: Optional[urllib.request.OpenerDirector] = None,
-    url_map: Optional[dict] = None,
+    resolver: urllib.request.OpenerDirector | None = None,
+    url_map: dict | None = None,
     download: bool = True,
     quiet: bool = False,
 ) -> None:

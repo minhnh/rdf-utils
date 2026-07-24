@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: MPL-2.0
+import pathlib
 import unittest
 from os.path import join
-from platformdirs import user_cache_dir
-import pathlib
-from rdf_utils.naming import get_valid_var_name, get_valid_filename
 
+from platformdirs import user_cache_dir
+
+from rdf_utils.naming import get_valid_filename, get_valid_var_name
 
 TEST_DIR = join(user_cache_dir(), "rdf-libs", "tests")
 TEST_STRINGS = ["with space", "with : colons", "with !. *? more special / + . chars"]
