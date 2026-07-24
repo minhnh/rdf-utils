@@ -2,7 +2,7 @@
 import unittest
 
 import numpy as np
-from rdflib import RDF, BNode, Graph, Namespace
+from rdflib import RDF, BNode, Graph, Literal, Namespace
 
 from rdf_utils.constraints import ConstraintViolation, check_shacl_constraints
 from rdf_utils.models.geometry import (
@@ -18,17 +18,26 @@ from rdf_utils.models.geometry import (
     get_coord_vectorxyz,
     get_euler_angles_abg,
     get_scipy_rotation,
+    get_translation_xyz,
 )
 from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF,
+    URI_GEOM_PRED_OF_POSITION,
+    URI_GEOM_PRED_SEEN_BY,
     URI_GEOM_PRED_WRT,
+    URI_GEOM_PRED_X,
+    URI_GEOM_PRED_Y,
+    URI_GEOM_PRED_Z,
     URI_GEOM_TYPE_ACCEL_TWIST,
     URI_GEOM_TYPE_FRAME,
     URI_GEOM_TYPE_ORIENT,
     URI_GEOM_TYPE_POINT,
     URI_GEOM_TYPE_POSE,
     URI_GEOM_TYPE_POSITION,
+    URI_GEOM_TYPE_POSITION_COORD,
+    URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
+    URI_GEOM_TYPE_VECTOR_XYZ,
     URI_GEOM_TYPE_VELOCITY_TWIST,
 )
 from rdf_utils.namespace import (
@@ -228,6 +237,73 @@ class GeometryTest(unittest.TestCase):
             [NS_TEST["pose-b1"], NS_TEST["pose-b2"]],
         )
         assert find_orientation_path(first, last, graph) == [orientation]
+
+    def test_translation_xyz(self):
+        graph = Graph()
+        first, middle, last = (
+            NS_TEST[f"translation-{name}"] for name in ("first", "middle", "last")
+        )
+        frame = NS_TEST["translation-frame"]
+        translations = ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0))
+        for index, (of_point, wrt_point, xyz) in enumerate(
+            ((first, middle, translations[0]), (middle, last, translations[1]))
+        ):
+            position = NS_TEST[f"translation-position-{index}"]
+            coordinate = NS_TEST[f"translation-coordinate-{index}"]
+            graph.add((position, RDF.type, URI_GEOM_TYPE_POSITION))
+            graph.add((position, URI_GEOM_PRED_OF, of_point))
+            graph.add((position, URI_GEOM_PRED_WRT, wrt_point))
+            for coord_type in (
+                URI_GEOM_TYPE_POSITION_COORD,
+                URI_GEOM_TYPE_POSITION_REF,
+                URI_GEOM_TYPE_VECTOR_XYZ,
+            ):
+                graph.add((coordinate, RDF.type, coord_type))
+            graph.add((coordinate, URI_GEOM_PRED_OF_POSITION, position))
+            graph.add((coordinate, URI_GEOM_PRED_SEEN_BY, frame))
+            for predicate, value in zip((URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z), xyz):
+                graph.add((coordinate, predicate, Literal(value)))
+
+        expected = tuple(sum(axis) for axis in zip(*translations))
+        assert get_translation_xyz(first, last, graph) == expected
+        assert get_translation_xyz(first, first, graph) == (0.0, 0.0, 0.0)
+        assert get_translation_xyz(last, first, graph) is None
+
+        first_coordinate = NS_TEST["translation-coordinate-0"]
+        graph.remove((first_coordinate, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ))
+        with self.assertRaises(ConstraintViolation):
+            get_translation_xyz(first, last, graph)
+        graph.add((first_coordinate, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ))
+
+        duplicate = NS_TEST["translation-coordinate-duplicate"]
+        for coord_type in (
+            URI_GEOM_TYPE_POSITION_COORD,
+            URI_GEOM_TYPE_POSITION_REF,
+            URI_GEOM_TYPE_VECTOR_XYZ,
+        ):
+            graph.add((duplicate, RDF.type, coord_type))
+        graph.add(
+            (
+                duplicate,
+                URI_GEOM_PRED_OF_POSITION,
+                NS_TEST["translation-position-0"],
+            )
+        )
+        with self.assertRaises(ConstraintViolation):
+            get_translation_xyz(first, last, graph)
+        graph.remove((duplicate, None, None))
+
+        second_coordinate = NS_TEST["translation-coordinate-1"]
+        graph.remove((second_coordinate, URI_GEOM_PRED_SEEN_BY, frame))
+        graph.add(
+            (
+                second_coordinate,
+                URI_GEOM_PRED_SEEN_BY,
+                NS_TEST["another-translation-frame"],
+            )
+        )
+        with self.assertRaises(ConstraintViolation):
+            get_translation_xyz(first, last, graph)
 
     def test_relation_path_errors(self):
         graph = Graph()

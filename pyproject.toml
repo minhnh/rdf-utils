@@ -26,7 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 all = [
   "numpy",
-  "scipy",
+  "scipy>=1.16",                  # include RigidTransform API
 ]
 docs = [
   "pathlib",                      # API generation script

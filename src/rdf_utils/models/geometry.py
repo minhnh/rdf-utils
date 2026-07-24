@@ -440,6 +440,60 @@ def find_acceleration_twist_path(
     return find_relation_path(of_complex, wrt_complex, URI_GEOM_TYPE_ACCEL_TWIST, graph)
 
 
+def get_translation_xyz(
+    of_point: URIRef, wrt_point: URIRef, graph: Graph
+) -> tuple[float, float, float] | None:
+    """Get the XYZ translation between two points.
+
+    VectorXYZ PositionCoordinates along the path must share one
+    ``as-seen-by`` frame. Other coordinate representations are ignored.
+
+    Parameters:
+        of_point: point at the start of the path
+        wrt_point: point at the end of the path
+        graph: RDF graph containing the Position relations and coordinates
+
+    Returns:
+        summed XYZ translation, a zero vector for the same point, or None when
+        no Position path exists
+    """
+    path = find_position_path(of_point, wrt_point, graph)
+    if path is None:
+        return None
+
+    translation = [0.0, 0.0, 0.0]
+    as_seen_by = None
+    for position in path:
+        coordinates = [
+            coord
+            for coord in graph.subjects(URI_GEOM_PRED_OF_POSITION, position)
+            if isinstance(coord, URIRef)
+            and (coord, RDF.type, URI_GEOM_TYPE_POSITION_COORD) in graph
+            and (coord, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ) in graph
+        ]
+        if len(coordinates) != 1:
+            raise ConstraintViolation(
+                "geometry",
+                f"Position {position} must have one URIRef VectorXYZ "
+                f"PositionCoordinate, found {len(coordinates)}",
+            )
+
+        coordinate = PositionCoordModel(coordinates[0], graph)
+        if as_seen_by is None:
+            as_seen_by = coordinate.as_seen_by
+        elif coordinate.as_seen_by != as_seen_by:
+            raise ConstraintViolation(
+                "geometry",
+                "PositionCoordinates in a path must share one as-seen-by frame",
+            )
+        translation = [
+            total + value
+            for total, value in zip(translation, get_coord_vectorxyz(coordinate, graph))
+        ]
+
+    return (translation[0], translation[1], translation[2])
+
+
 def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
     """Extract coordinates for a VectorXYZ model.
 
