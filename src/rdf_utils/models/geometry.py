@@ -74,9 +74,10 @@ class FrameModel(ModelBase):
         super().__init__(node_id=frame_id, graph=graph)
 
         origin_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_ORIGIN)
-        assert origin_id is not None and isinstance(origin_id, URIRef), (
-            f"Frame '{self.id}' does not have a valid 'origin' property: {origin_id}"
-        )
+        if not isinstance(origin_id, URIRef):
+            raise ConstraintViolation(
+                "geometry", f"Frame '{self.id}' does not link to a URI via 'origin': {origin_id}"
+            )
         self.origin = origin_id
 
 
@@ -103,21 +104,26 @@ class IFrameRelationCoord(ModelBase):
         super().__init__(node_id=coord_id, graph=graph)
 
         seen_by_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_SEEN_BY)
-        assert seen_by_id is not None and isinstance(seen_by_id, URIRef), (
-            f"IFrameRelationCoord: '{self.id}' does not have a valid 'as-seen-by' property: {seen_by_id}"
-        )
+        if not isinstance(seen_by_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate '{self.id}' does not link to a URI via 'as-seen-by': {seen_by_id}",
+            )
         self.as_seen_by = seen_by_id
 
         of_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_OF)
-        assert of_id is not None and isinstance(of_id, URIRef), (
-            f"IFrameRelationCoord: relation '{relation_id}' does not have a valid 'of' property: {of_id}"
-        )
+        if not isinstance(of_id, URIRef):
+            raise ConstraintViolation(
+                "geometry", f"Relation '{relation_id}' does not link to a URI via 'of': {of_id}"
+            )
         self.of = FrameModel(frame_id=of_id, graph=graph)
 
         wrt_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_WRT)
-        assert wrt_id is not None and isinstance(wrt_id, URIRef), (
-            f"IFrameRelationCoord: '{relation_id}' does not have a valid 'with-respect-to' property: {wrt_id}"
-        )
+        if not isinstance(wrt_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Relation '{relation_id}' does not link to a URI via 'with-respect-to': {wrt_id}",
+            )
         self.wrt = FrameModel(frame_id=wrt_id, graph=graph)
 
 
@@ -136,19 +142,19 @@ class PoseCoordModel(IFrameRelationCoord):
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
-        assert pose_id is not None and isinstance(pose_id, URIRef), (
-            f"PoseCoordinate '{coord_id}' does not have a valid 'of-pose' property: {pose_id}"
-        )
+        if not isinstance(pose_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"PoseCoordinate '{coord_id}' does not link to a URI via 'of-pose': {pose_id}",
+            )
         self.pose = pose_id
 
         super().__init__(coord_id=coord_id, relation_id=self.pose, graph=graph)
 
-        assert URI_GEOM_TYPE_POSE_COORD in self.types, (
-            f"PoseCoordModel: '{self.id}' is not a PoseCoordinate"
-        )
-        assert URI_GEOM_TYPE_POSE_REF in self.types, (
-            f"PoseCoordModel: '{self.id}' is not a PoseReference"
-        )
+        if URI_GEOM_TYPE_POSE_COORD not in self.types:
+            raise TypeError(f"'{self.id}' is not a PoseCoordinate")
+        if URI_GEOM_TYPE_POSE_REF not in self.types:
+            raise TypeError(f"'{self.id}' is not a PoseReference")
 
 
 class OrientCoordModel(IFrameRelationCoord):
@@ -166,19 +172,19 @@ class OrientCoordModel(IFrameRelationCoord):
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         orient_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_ORIENT)
-        assert orient_id is not None and isinstance(orient_id, URIRef), (
-            f"OrientationCoordinate '{coord_id}' does not have a valid 'of-orientation' property: {orient_id}"
-        )
+        if not isinstance(orient_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"OrientationCoordinate '{coord_id}' does not link to a URI via 'of-orientation': {orient_id}",
+            )
         self.orientation = orient_id
 
         super().__init__(coord_id=coord_id, relation_id=self.orientation, graph=graph)
 
-        assert URI_GEOM_TYPE_ORIENT_COORD in self.types, (
-            f"OrientCoordModel: '{self.id}' is not an OrientationCoordinate"
-        )
-        assert URI_GEOM_TYPE_ORIENT_REF in self.types, (
-            f"OrientCoordModel: '{self.id}' is not an OrientationReference"
-        )
+        if URI_GEOM_TYPE_ORIENT_COORD not in self.types:
+            raise TypeError(f"'{self.id}' is not an OrientationCoordinate")
+        if URI_GEOM_TYPE_ORIENT_REF not in self.types:
+            raise TypeError(f"'{self.id}' is not an OrientationReference")
 
 
 class PositionCoordModel(ModelBase):
@@ -203,33 +209,41 @@ class PositionCoordModel(ModelBase):
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=coord_id, graph=graph)
 
-        assert URI_GEOM_TYPE_POSITION_COORD in self.types, (
-            f"'{self.id}' is not a PositionCoordinate"
-        )
+        if URI_GEOM_TYPE_POSITION_COORD not in self.types:
+            raise TypeError(f"'{self.id}' is not a PositionCoordinate")
 
         seen_by_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_SEEN_BY)
-        assert seen_by_id is not None and isinstance(seen_by_id, URIRef), (
-            f"PositionCoordinate '{self.id}' does not have a valid 'as-seen-by' property: {seen_by_id}"
-        )
+        if not isinstance(seen_by_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"PositionCoordinate '{self.id}' does not link to a URI via 'as-seen-by': {seen_by_id}",
+            )
         self.as_seen_by = seen_by_id
 
-        assert URI_GEOM_TYPE_POSITION_REF in self.types, f"'{self.id}' is not a PositionReference"
+        if URI_GEOM_TYPE_POSITION_REF not in self.types:
+            raise TypeError(f"'{self.id}' is not a PositionReference")
+
         position_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_OF_POSITION)
-        assert position_id is not None and isinstance(position_id, URIRef), (
-            f"PositionCoordinate '{self.id}' does not have a valid 'of-position' property: {position_id}"
-        )
+        if not isinstance(position_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"PositionCoordinate '{self.id}' does not link to a URI via 'of-position': {position_id}",
+            )
         self.position = position_id
 
         of_id = graph.value(subject=self.position, predicate=URI_GEOM_PRED_OF)
-        assert of_id is not None and isinstance(of_id, URIRef), (
-            f"Position '{self.position}' does not have a valid 'of' property: {of_id}"
-        )
+        if not isinstance(of_id, URIRef):
+            raise ConstraintViolation(
+                "geometry", f"Position '{self.position}' does not link to a URI via 'of': {of_id}"
+            )
         self.of = of_id
 
         wrt_id = graph.value(subject=self.position, predicate=URI_GEOM_PRED_WRT)
-        assert wrt_id is not None and isinstance(wrt_id, URIRef), (
-            f"Position '{self.position}' does not have a valid 'with-respect-to' property: {wrt_id}"
-        )
+        if not isinstance(wrt_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Position '{self.position}' does not link to a URI via 'with-respect-to': {wrt_id}",
+            )
         self.wrt = wrt_id
 
 
@@ -660,9 +674,8 @@ def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> t
     Returns:
         tuple containing axes sequence of the Euler angles and whether the rotation is intrinsic
     """
-    assert URI_GEOM_TYPE_EULER_ANGLES in coord_model.types, (
-        f"coord '{coord_model.id}' does not have type 'EulerAngles'"
-    )
+    if URI_GEOM_TYPE_EULER_ANGLES not in coord_model.types:
+        raise ValueError(f"Coordinate '{coord_model.id}' is not an EulerAngles")
 
     if URI_GEOM_TYPE_INTRINSIC in coord_model.types:
         is_intrinsic = True
@@ -675,9 +688,11 @@ def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> t
         )
 
     seq_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_AXES_SEQ)
-    assert isinstance(seq_node, Literal) and isinstance(seq_node.value, str), (
-        f"Coordinate '{coord_model.id}' does not have a 'axes-sequence' property of type str: {seq_node}"
-    )
+    if not isinstance(seq_node, Literal) or not isinstance(seq_node.value, str):
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate '{coord_model.id}' must have an 'axes-sequence' string: {seq_node}",
+        )
 
     return seq_node.value, is_intrinsic
 
@@ -699,9 +714,8 @@ def get_euler_angles_abg(
         - angle values
         or None when no values are present
     """
-    assert URI_GEOM_TYPE_ANGLES_ABG in coord_model.types, (
-        f"coord '{coord_model.id}' does not have type 'AnglesAlphaBetaGamma'"
-    )
+    if URI_GEOM_TYPE_ANGLES_ABG not in coord_model.types:
+        raise ValueError(f"Coordinate '{coord_model.id}' is not an AnglesAlphaBetaGamma")
 
     seq, is_intrinsic = get_euler_angles_params(coord_model=coord_model, graph=graph)
 
@@ -748,7 +762,10 @@ def get_euler_angles_abg(
         )
 
     angle_unit = angle_units.pop()
-    assert isinstance(angle_unit, URIRef)
+    if not isinstance(angle_unit, URIRef):
+        raise ConstraintViolation(
+            "geometry", f"Euler Coordinate '{coord_model.id}' must have a URIRef angle unit"
+        )
 
     return seq, is_intrinsic, angle_unit, (angles[0], angles[1], angles[2])
 

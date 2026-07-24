@@ -182,6 +182,17 @@ class GeometryTest(unittest.TestCase):
             get_euler_angles_abg(pose_model, euler_g)
         euler_g.remove((URI_TEST_EULER_POSE, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_RAD))
 
+        axes_sequence = euler_g.value(URI_TEST_EULER_POSE, URI_GEOM_PRED_AXES_SEQ)
+        euler_g.remove((URI_TEST_EULER_POSE, URI_GEOM_PRED_AXES_SEQ, None))
+        with self.assertRaises(ConstraintViolation):
+            get_euler_angles_abg(pose_model, euler_g)
+        euler_g.add((URI_TEST_EULER_POSE, URI_GEOM_PRED_AXES_SEQ, axes_sequence))
+
+        pose_model.types.remove(URI_GEOM_TYPE_ANGLES_ABG)
+        with self.assertRaises(ValueError):
+            get_euler_angles_abg(pose_model, euler_g)
+        pose_model.types.add(URI_GEOM_TYPE_ANGLES_ABG)
+
         rot = get_scipy_rotation(pose_model, euler_g)
         assert np.allclose(
             get_or_sample_scipy_rotation(pose_model, euler_g).as_matrix(), rot.as_matrix()
@@ -201,6 +212,14 @@ class GeometryTest(unittest.TestCase):
         assert orientation_model.as_seen_by == URI_TEST_FRAME_REF
         assert orientation_model.of.origin == URI_TEST_BODY_ORIGIN
         assert orientation_model.wrt.origin == URI_TEST_REF_ORIGIN
+
+        orientation_g.remove((URI_TEST_ORIENT_COORD, RDF.type, URI_GEOM_TYPE_ORIENT_REF))
+        with self.assertRaises(TypeError):
+            OrientCoordModel(coord_id=URI_TEST_ORIENT_COORD, graph=orientation_g)
+
+        orientation_g.remove((URI_TEST_ORIENT_COORD, URI_GEOM_PRED_OF_ORIENT, None))
+        with self.assertRaises(ConstraintViolation):
+            OrientCoordModel(coord_id=URI_TEST_ORIENT_COORD, graph=orientation_g)
 
     def test_orientation_rotation_representations(self):
         graph = Graph()
