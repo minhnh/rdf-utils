@@ -9,6 +9,7 @@ from rdf_utils.models.geometry import (
     URI_QUDT_UNIT_DEG,
     OrientCoordModel,
     PoseCoordModel,
+    find_acceleration_twist_path,
     find_orientation_path,
     find_pose_path,
     find_position_path,
@@ -21,6 +22,7 @@ from rdf_utils.models.geometry import (
 from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_WRT,
+    URI_GEOM_TYPE_ACCEL_TWIST,
     URI_GEOM_TYPE_FRAME,
     URI_GEOM_TYPE_ORIENT,
     URI_GEOM_TYPE_POINT,
@@ -163,6 +165,10 @@ class GeometryTest(unittest.TestCase):
             URI_GEOM_TYPE_POSE: (find_pose_path, URI_GEOM_TYPE_FRAME),
             URI_GEOM_TYPE_VELOCITY_TWIST: (
                 find_velocity_twist_path,
+                URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
+            ),
+            URI_GEOM_TYPE_ACCEL_TWIST: (
+                find_acceleration_twist_path,
                 URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
             ),
         }

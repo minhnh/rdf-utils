@@ -25,6 +25,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_X,
     URI_GEOM_PRED_Y,
     URI_GEOM_PRED_Z,
+    URI_GEOM_TYPE_ACCEL_TWIST,
     URI_GEOM_TYPE_ANGLES_ABG,
     URI_GEOM_TYPE_EULER_ANGLES,
     URI_GEOM_TYPE_EXTRINSIC,
@@ -417,6 +418,26 @@ def find_velocity_twist_path(
         SimplicialComplex, or None when no path exists
     """
     return find_relation_path(of_complex, wrt_complex, URI_GEOM_TYPE_VELOCITY_TWIST, graph)
+
+
+def find_acceleration_twist_path(
+    of_complex: URIRef, wrt_complex: URIRef, graph: Graph
+) -> list[URIRef] | None:
+    """Find the shortest directed AccelerationTwist path.
+
+    The relations' ``reference-point`` values do not affect path connectivity
+    and are intentionally ignored.
+
+    Parameters:
+        of_complex: SimplicialComplex at the start of the path
+        wrt_complex: SimplicialComplex at the end of the path
+        graph: RDF graph containing the AccelerationTwist relations
+
+    Returns:
+        AccelerationTwist URIRefs in forward order, an empty list for the same
+        SimplicialComplex, or None when no path exists
+    """
+    return find_relation_path(of_complex, wrt_complex, URI_GEOM_TYPE_ACCEL_TWIST, graph)
 
 
 def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
