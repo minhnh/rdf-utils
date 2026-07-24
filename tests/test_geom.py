@@ -13,6 +13,7 @@ from rdf_utils.models.geometry import (
     find_pose_path,
     find_position_path,
     find_relation_path,
+    find_velocity_twist_path,
     get_coord_vectorxyz,
     get_euler_angles_abg,
     get_scipy_rotation,
@@ -25,6 +26,8 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POINT,
     URI_GEOM_TYPE_POSE,
     URI_GEOM_TYPE_POSITION,
+    URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
+    URI_GEOM_TYPE_VELOCITY_TWIST,
 )
 from rdf_utils.namespace import (
     URL_COMP_ROB2B,
@@ -158,6 +161,10 @@ class GeometryTest(unittest.TestCase):
             URI_GEOM_TYPE_POSITION: (find_position_path, URI_GEOM_TYPE_POINT),
             URI_GEOM_TYPE_ORIENT: (find_orientation_path, URI_GEOM_TYPE_FRAME),
             URI_GEOM_TYPE_POSE: (find_pose_path, URI_GEOM_TYPE_FRAME),
+            URI_GEOM_TYPE_VELOCITY_TWIST: (
+                find_velocity_twist_path,
+                URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
+            ),
         }
         for relation_type, (wrapper, entity_type) in wrappers.items():
             with self.subTest(relation_type=relation_type):

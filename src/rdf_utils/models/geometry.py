@@ -39,6 +39,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION_COORD,
     URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_VECTOR_XYZ,
+    URI_GEOM_TYPE_VELOCITY_TWIST,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_DEG,
     URI_QUDT_UNIT_RAD,
@@ -396,6 +397,26 @@ def find_pose_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[UR
         None when no path exists
     """
     return find_relation_path(of_frame, wrt_frame, URI_GEOM_TYPE_POSE, graph)
+
+
+def find_velocity_twist_path(
+    of_complex: URIRef, wrt_complex: URIRef, graph: Graph
+) -> list[URIRef] | None:
+    """Find the shortest directed VelocityTwist path.
+
+    The relations' ``reference-point`` values do not affect path connectivity
+    and are intentionally ignored.
+
+    Parameters:
+        of_complex: SimplicialComplex at the start of the path
+        wrt_complex: SimplicialComplex at the end of the path
+        graph: RDF graph containing the VelocityTwist relations
+
+    Returns:
+        VelocityTwist URIRefs in forward order, an empty list for the same
+        SimplicialComplex, or None when no path exists
+    """
+    return find_relation_path(of_complex, wrt_complex, URI_GEOM_TYPE_VELOCITY_TWIST, graph)
 
 
 def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
