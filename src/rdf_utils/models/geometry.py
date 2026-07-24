@@ -446,7 +446,8 @@ def get_translation_xyz(
     """Get the XYZ translation between two points.
 
     VectorXYZ PositionCoordinates along the path must share one
-    ``as-seen-by`` frame. Other coordinate representations are ignored.
+    ``as-seen-by`` frame and one QUDT unit. Other coordinate representations
+    are ignored.
 
     Parameters:
         of_point: point at the start of the path
@@ -463,6 +464,7 @@ def get_translation_xyz(
 
     translation = [0.0, 0.0, 0.0]
     as_seen_by = None
+    unit = None
     for position in path:
         coordinates = [
             coord
@@ -479,6 +481,20 @@ def get_translation_xyz(
             )
 
         coordinate = PositionCoordModel(coordinates[0], graph)
+        coordinate_units = list(graph.objects(coordinate.id, URI_QUDT_PRED_UNIT))
+        if len(coordinate_units) != 1 or not isinstance(coordinate_units[0], URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"PositionCoordinate {coordinate.id} must have one URIRef unit, "
+                f"found {len(coordinate_units)}",
+            )
+        if unit is None:
+            unit = coordinate_units[0]
+        elif coordinate_units[0] != unit:
+            raise ConstraintViolation(
+                "geometry",
+                "PositionCoordinates in a path must share one unit",
+            )
         if as_seen_by is None:
             as_seen_by = coordinate.as_seen_by
         elif coordinate.as_seen_by != as_seen_by:

@@ -39,6 +39,9 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
     URI_GEOM_TYPE_VECTOR_XYZ,
     URI_GEOM_TYPE_VELOCITY_TWIST,
+    URI_QUDT_PRED_UNIT,
+    URI_QUDT_UNIT_M,
+    URI_QUDT_UNIT_MM,
 )
 from rdf_utils.namespace import (
     URL_COMP_ROB2B,
@@ -261,6 +264,7 @@ class GeometryTest(unittest.TestCase):
                 graph.add((coordinate, RDF.type, coord_type))
             graph.add((coordinate, URI_GEOM_PRED_OF_POSITION, position))
             graph.add((coordinate, URI_GEOM_PRED_SEEN_BY, frame))
+            graph.add((coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
             for predicate, value in zip((URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z), xyz):
                 graph.add((coordinate, predicate, Literal(value)))
 
@@ -294,6 +298,18 @@ class GeometryTest(unittest.TestCase):
         graph.remove((duplicate, None, None))
 
         second_coordinate = NS_TEST["translation-coordinate-1"]
+        graph.remove((first_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
+        with self.assertRaises(ConstraintViolation):
+            get_translation_xyz(first, last, graph)
+        graph.add((first_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
+
+        graph.remove((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
+        graph.add((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_MM))
+        with self.assertRaises(ConstraintViolation):
+            get_translation_xyz(first, last, graph)
+        graph.remove((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_MM))
+        graph.add((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
+
         graph.remove((second_coordinate, URI_GEOM_PRED_SEEN_BY, frame))
         graph.add(
             (
