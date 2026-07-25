@@ -8,18 +8,12 @@ from scipy.spatial.transform import Rotation
 
 from rdf_utils.collection import add_literal_list_pred
 from rdf_utils.constraints import ConstraintViolation, check_shacl_constraints
-from rdf_utils.models.geometry import (
+from rdf_utils.models.geom_coord import (
     URI_QUDT_UNIT_DEG,
     URI_QUDT_UNIT_RAD,
     OrientCoordModel,
     PoseCoordModel,
     PositionCoordModel,
-    find_acceleration_twist_path,
-    find_orientation_path,
-    find_pose_path,
-    find_position_path,
-    find_relation_path,
-    find_velocity_twist_path,
     get_coord_vectorxyz,
     get_direction_cosine_matrix,
     get_euler_angles_abg,
@@ -28,6 +22,14 @@ from rdf_utils.models.geometry import (
     get_orientation_coord,
     get_rotation_between_frames,
     get_translation_between_points,
+)
+from rdf_utils.models.geom_rel import (
+    find_acceleration_twist_path,
+    find_orientation_path,
+    find_pose_path,
+    find_position_path,
+    find_relation_path,
+    find_velocity_twist_path,
 )
 from rdf_utils.models.vocab import (
     URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
@@ -280,8 +282,10 @@ class GeometryTest(unittest.TestCase):
             get_or_sample_orientation_coord(sampled_model, graph)
 
         with (
-            patch("rdf_utils.models.geometry.distrib_from_sampled_quantity") as get_distrib,
-            patch("rdf_utils.models.geometry.sample_from_distrib", return_value=expected) as sample,
+            patch("rdf_utils.models.geom_coord.distrib_from_sampled_quantity") as get_distrib,
+            patch(
+                "rdf_utils.models.geom_coord.sample_from_distrib", return_value=expected
+            ) as sample,
         ):
             get_distrib.return_value.types = set()
             with self.assertRaises(ConstraintViolation):
@@ -551,8 +555,8 @@ class GeometryTest(unittest.TestCase):
         rng = np.random.default_rng(42)
         sampled_coordinate = PositionCoordModel(first_coordinate, graph)
         with (
-            patch("rdf_utils.models.geometry.distrib_from_sampled_quantity") as get_distrib,
-            patch("rdf_utils.models.geometry.sample_from_distrib", return_value=sample),
+            patch("rdf_utils.models.geom_coord.distrib_from_sampled_quantity") as get_distrib,
+            patch("rdf_utils.models.geom_coord.sample_from_distrib", return_value=sample),
         ):
             get_distrib.return_value.get_attr.return_value = 2
             with self.assertRaises(ConstraintViolation):
