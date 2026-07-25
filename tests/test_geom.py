@@ -179,6 +179,7 @@ class GeometryTest(unittest.TestCase):
         )
 
         pose_model = PoseCoordModel(coord_id=URI_TEST_EULER_POSE, graph=euler_g)
+        assert pose_model.relation.coordinate_ids == {URI_TEST_EULER_POSE}
         x, y, z = get_coord_vectorxyz(pose_model, euler_g)
         assert x == 10.0 and y == 5.0 and z == 0.0
 
@@ -216,10 +217,12 @@ class GeometryTest(unittest.TestCase):
 
         orientation_model = OrientCoordModel(coord_id=URI_TEST_ORIENT_COORD, graph=orientation_g)
 
-        assert orientation_model.orientation == URI_TEST_ORIENTATION
-        assert orientation_model.as_seen_by == URI_TEST_FRAME_REF
-        assert orientation_model.of.origin == URI_TEST_BODY_ORIGIN
-        assert orientation_model.wrt.origin == URI_TEST_REF_ORIGIN
+        assert orientation_model.relation.id == URI_TEST_ORIENTATION
+        assert orientation_model.relation.pose_ids == set()
+        assert orientation_model.relation.coordinate_ids == {URI_TEST_ORIENT_COORD}
+        assert orientation_model.as_seen_by.id == URI_TEST_FRAME_REF
+        assert orientation_model.relation.of_frame.origin == URI_TEST_BODY_ORIGIN
+        assert orientation_model.relation.wrt_frame.origin == URI_TEST_REF_ORIGIN
 
         orientation_g.remove((URI_TEST_ORIENT_COORD, RDF.type, URI_GEOM_TYPE_ORIENT_REF))
         with self.assertRaises(TypeError):
@@ -564,8 +567,7 @@ class GeometryTest(unittest.TestCase):
                 NS_TEST["another-translation-frame"],
             )
         )
-        with self.assertRaises(ConstraintViolation):
-            get_translation_between_points(first, last, graph)
+        assert get_translation_between_points(first, last, graph) == expected
 
         graph.remove((second_coordinate, URI_GEOM_PRED_SEEN_BY, None))
         graph.add((second_coordinate, URI_GEOM_PRED_SEEN_BY, frame))

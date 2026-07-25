@@ -11,14 +11,38 @@ from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF,
+    URI_GEOM_PRED_OF_ORIENT,
+    URI_GEOM_PRED_OF_POSE,
+    URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_ORIGIN,
     URI_GEOM_PRED_WRT,
     URI_GEOM_TYPE_ACCEL_TWIST,
     URI_GEOM_TYPE_ORIENT,
+    URI_GEOM_TYPE_ORIENT_COORD,
+    URI_GEOM_TYPE_ORIENT_REF,
     URI_GEOM_TYPE_POSE,
+    URI_GEOM_TYPE_POSE_COORD,
     URI_GEOM_TYPE_POSITION,
+    URI_GEOM_TYPE_POSITION_COORD,
+    URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_VELOCITY_TWIST,
 )
+
+
+def _typed_subjects(
+    graph: Graph, predicate: URIRef, object_id: URIRef, subject_type: URIRef
+) -> set[URIRef]:
+    """Return URI subjects of a predicate filtered by RDF type."""
+    subjects = set()
+    for subject in graph.subjects(predicate=predicate, object=object_id):
+        if (subject, RDF.type, subject_type) not in graph:
+            continue
+        if not isinstance(subject, URIRef):
+            raise ConstraintViolation(
+                "geometry", f"{subject_type} reference must be a URIRef: {subject}"
+            )
+        subjects.add(subject)
+    return subjects
 
 
 class FrameModel(ModelBase):
@@ -43,6 +67,128 @@ class FrameModel(ModelBase):
                 "geometry", f"Frame '{self.id}' does not link to a URI via 'origin': {origin_id}"
             )
         self.origin = origin_id
+
+
+class IGeomRelationModel(ModelBase):
+    of_id: URIRef
+    wrt_id: URIRef
+
+    def __init__(self, rel_id: URIRef, graph: Graph) -> None:
+        super().__init__(node_id=rel_id, graph=graph)
+
+        of_id = graph.value(subject=rel_id, predicate=URI_GEOM_PRED_OF)
+        if not isinstance(of_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Geometry relation '{self.id}' does not link to a URI via 'of': {of_id}",
+            )
+        self.of_id = of_id
+
+        wrt_id = graph.value(subject=rel_id, predicate=URI_GEOM_PRED_WRT)
+        if not isinstance(wrt_id, URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Geometry relation '{self.id}' does not link to a URI via 'with-respect-to': {wrt_id}",
+            )
+        self.wrt_id = wrt_id
+
+
+class PositionModel(IGeomRelationModel):
+    pose_ids: set[URIRef]
+    coordinate_ids: set[URIRef]
+
+    def __init__(self, position_id: URIRef, graph: Graph) -> None:
+        super().__init__(rel_id=position_id, graph=graph)
+
+        if URI_GEOM_TYPE_POSITION not in self.types:
+            raise TypeError(f"{self.id} is not a Position")
+
+        self.pose_ids = _typed_subjects(
+            graph=graph,
+            predicate=URI_GEOM_PRED_OF_POSITION,
+            object_id=self.id,
+            subject_type=URI_GEOM_TYPE_POSE,
+        )
+        self.coordinate_ids = _typed_subjects(
+            graph=graph,
+            predicate=URI_GEOM_PRED_OF_POSITION,
+            object_id=self.id,
+            subject_type=URI_GEOM_TYPE_POSITION_COORD,
+        )
+
+
+class IFrameRelationModel(IGeomRelationModel):
+    of_frame: FrameModel
+    wrt_frame: FrameModel
+
+    def __init__(self, rel_id: URIRef, graph: Graph) -> None:
+        super().__init__(rel_id=rel_id, graph=graph)
+
+        self.of_frame = FrameModel(frame_id=self.of_id, graph=graph)
+        self.wrt_frame = FrameModel(frame_id=self.wrt_id, graph=graph)
+
+
+class OrientationModel(IFrameRelationModel):
+    pose_ids: set[URIRef]
+    coordinate_ids: set[URIRef]
+
+    def __init__(self, orn_id: URIRef, graph: Graph) -> None:
+        super().__init__(rel_id=orn_id, graph=graph)
+
+        if URI_GEOM_TYPE_ORIENT not in self.types:
+            raise TypeError(f"{self.id} is not an Orientation")
+
+        self.pose_ids = _typed_subjects(
+            graph=graph,
+            predicate=URI_GEOM_PRED_OF_ORIENT,
+            object_id=self.id,
+            subject_type=URI_GEOM_TYPE_POSE,
+        )
+        self.coordinate_ids = _typed_subjects(
+            graph=graph,
+            predicate=URI_GEOM_PRED_OF_ORIENT,
+            object_id=self.id,
+            subject_type=URI_GEOM_TYPE_ORIENT_COORD,
+        )
+
+
+class PoseModel(IFrameRelationModel):
+    coordinate_ids: set[URIRef]
+    position: PositionModel | None
+    orientation: OrientationModel | None
+
+    def __init__(self, pose_id: URIRef, graph: Graph) -> None:
+        super().__init__(rel_id=pose_id, graph=graph)
+
+        if URI_GEOM_TYPE_POSE not in self.types:
+            raise TypeError(f"{self.id} is not a Pose")
+
+        self.coordinate_ids = _typed_subjects(
+            graph=graph,
+            predicate=URI_GEOM_PRED_OF_POSE,
+            object_id=self.id,
+            subject_type=URI_GEOM_TYPE_POSE_COORD,
+        )
+
+        self.position = None
+        if URI_GEOM_TYPE_POSITION_REF in self.types:
+            position_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_OF_POSITION)
+            if not isinstance(position_id, URIRef):
+                raise ConstraintViolation(
+                    "geometry",
+                    f"Pose '{self.id}' has PositionReference type but does not link to a URI via 'of-position': {position_id}",
+                )
+            self.position = PositionModel(position_id=position_id, graph=graph)
+
+        self.orientation = None
+        if URI_GEOM_TYPE_ORIENT_REF in self.types:
+            orn_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_OF_ORIENT)
+            if not isinstance(orn_id, URIRef):
+                raise ConstraintViolation(
+                    "geometry",
+                    f"Pose '{self.id}' has OrientationReference type but does not link to a URI via 'of-orientation': {orn_id}",
+                )
+            self.orientation = OrientationModel(orn_id=orn_id, graph=graph)
 
 
 def relation_neighbors(

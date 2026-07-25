@@ -13,7 +13,15 @@ from rdf_utils.collection import add_literal_list_pred, load_list_re
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.common import ModelBase
 from rdf_utils.models.distribution import distrib_from_sampled_quantity, sample_from_distrib
-from rdf_utils.models.geom_rel import FrameModel, find_orientation_path, find_position_path
+from rdf_utils.models.geom_rel import (
+    FrameModel,
+    IFrameRelationModel,
+    OrientationModel,
+    PoseModel,
+    PositionModel,
+    find_orientation_path,
+    find_position_path,
+)
 from rdf_utils.models.vocab import (
     URI_DISTRIB_PRED_DIM,
     URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
@@ -25,13 +33,11 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_DIRECTION_COSINE_Y,
     URI_GEOM_PRED_DIRECTION_COSINE_Z,
     URI_GEOM_PRED_GAMMA,
-    URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_ORIENT,
     URI_GEOM_PRED_OF_POSE,
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_SEEN_BY,
     URI_GEOM_PRED_W,
-    URI_GEOM_PRED_WRT,
     URI_GEOM_PRED_X,
     URI_GEOM_PRED_Y,
     URI_GEOM_PRED_Z,
@@ -58,23 +64,21 @@ class IFrameRelationCoord(ModelBase):
     """Model object for a PoseCoordinate or OrientationCoordinate
 
     Attributes:
-        of: the pose's target frame
-        wrt: the pose's reference frame
-        as_seen_by: the coordinate's reference frame
+        relation: geometric relation described by the coordinate
+        as_seen_by: frame from which the coordinate is observed
 
     Parameters:
         coord_id: URI of the coordinate node in the graph
-        relation_id: URI of the node in the graph, which specifies the
-                     geometric relation between 2 frames, e.g. Pose or Orientation
+        relation: geometric relation model, e.g. Pose or Orientation
         graph: RDF graph for loading attributes
     """
 
-    of: FrameModel
-    wrt: FrameModel
-    as_seen_by: URIRef
+    relation: IFrameRelationModel
+    as_seen_by: FrameModel
 
-    def __init__(self, coord_id: URIRef, relation_id: URIRef, graph: Graph) -> None:
+    def __init__(self, coord_id: URIRef, relation: IFrameRelationModel, graph: Graph) -> None:
         super().__init__(node_id=coord_id, graph=graph)
+        self.relation = relation
 
         seen_by_id = graph.value(subject=self.id, predicate=URI_GEOM_PRED_SEEN_BY)
         if not isinstance(seen_by_id, URIRef):
@@ -82,36 +86,16 @@ class IFrameRelationCoord(ModelBase):
                 "geometry",
                 f"Coordinate '{self.id}' does not link to a URI via 'as-seen-by': {seen_by_id}",
             )
-        self.as_seen_by = seen_by_id
-
-        of_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_OF)
-        if not isinstance(of_id, URIRef):
-            raise ConstraintViolation(
-                "geometry", f"Relation '{relation_id}' does not link to a URI via 'of': {of_id}"
-            )
-        self.of = FrameModel(frame_id=of_id, graph=graph)
-
-        wrt_id = graph.value(subject=relation_id, predicate=URI_GEOM_PRED_WRT)
-        if not isinstance(wrt_id, URIRef):
-            raise ConstraintViolation(
-                "geometry",
-                f"Relation '{relation_id}' does not link to a URI via 'with-respect-to': {wrt_id}",
-            )
-        self.wrt = FrameModel(frame_id=wrt_id, graph=graph)
+        self.as_seen_by = FrameModel(frame_id=seen_by_id, graph=graph)
 
 
 class PoseCoordModel(IFrameRelationCoord):
-    """Model object for a PoseCoordinate
-
-    Attributes:
-        pose: URI of Pose relation to which the coordinate supplies values.
+    """Model object for a PoseCoordinate.
 
     Parameters:
         coord_id: URI of the PoseCoordinate in the graph
         graph: RDF graph for loading attributes
     """
-
-    pose: URIRef
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
@@ -120,9 +104,9 @@ class PoseCoordModel(IFrameRelationCoord):
                 "geometry",
                 f"PoseCoordinate '{coord_id}' does not link to a URI via 'of-pose': {pose_id}",
             )
-        self.pose = pose_id
+        pose = PoseModel(pose_id=pose_id, graph=graph)
 
-        super().__init__(coord_id=coord_id, relation_id=self.pose, graph=graph)
+        super().__init__(coord_id=coord_id, relation=pose, graph=graph)
 
         if URI_GEOM_TYPE_POSE_COORD not in self.types:
             raise TypeError(f"'{self.id}' is not a PoseCoordinate")
@@ -131,17 +115,12 @@ class PoseCoordModel(IFrameRelationCoord):
 
 
 class OrientCoordModel(IFrameRelationCoord):
-    """Model object for an OrientationCoordinate
-
-    Attributes:
-        orientation: URI of the Orientation relation to which the coordinate supplies values.
+    """Model object for an OrientationCoordinate.
 
     Parameters:
         coord_id: URI of the OrientationCoordinate in the graph
         graph: RDF graph for loading attributes
     """
-
-    orientation: URIRef
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         orient_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_ORIENT)
@@ -150,9 +129,9 @@ class OrientCoordModel(IFrameRelationCoord):
                 "geometry",
                 f"OrientationCoordinate '{coord_id}' does not link to a URI via 'of-orientation': {orient_id}",
             )
-        self.orientation = orient_id
+        orientation = OrientationModel(orn_id=orient_id, graph=graph)
 
-        super().__init__(coord_id=coord_id, relation_id=self.orientation, graph=graph)
+        super().__init__(coord_id=coord_id, relation=orientation, graph=graph)
 
         if URI_GEOM_TYPE_ORIENT_COORD not in self.types:
             raise TypeError(f"'{self.id}' is not an OrientationCoordinate")
@@ -164,19 +143,15 @@ class PositionCoordModel(ModelBase):
     """Model object for a PoseCoordinate
 
     Attributes:
-        position: URI of Position of the coordinate
-        of: URI of the position's target Point
-        wrt: URI of the position's reference Point
-        as_seen_by: the coordinate's reference frame
+        position: Position relation to which the coordinate supplies values
+        as_seen_by: URI of the coordinate's reference frame
 
     Parameters:
         coord_id: URI of the PositionCoordinate in the graph
         graph: RDF graph for loading attributes
     """
 
-    position: URIRef
-    of: URIRef
-    wrt: URIRef
+    position: PositionModel
     as_seen_by: URIRef
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
@@ -202,22 +177,8 @@ class PositionCoordModel(ModelBase):
                 "geometry",
                 f"PositionCoordinate '{self.id}' does not link to a URI via 'of-position': {position_id}",
             )
-        self.position = position_id
 
-        of_id = graph.value(subject=self.position, predicate=URI_GEOM_PRED_OF)
-        if not isinstance(of_id, URIRef):
-            raise ConstraintViolation(
-                "geometry", f"Position '{self.position}' does not link to a URI via 'of': {of_id}"
-            )
-        self.of = of_id
-
-        wrt_id = graph.value(subject=self.position, predicate=URI_GEOM_PRED_WRT)
-        if not isinstance(wrt_id, URIRef):
-            raise ConstraintViolation(
-                "geometry",
-                f"Position '{self.position}' does not link to a URI via 'with-respect-to': {wrt_id}",
-            )
-        self.wrt = wrt_id
+        self.position = PositionModel(position_id=position_id, graph=graph)
 
 
 def get_translation_between_points(
@@ -229,11 +190,11 @@ def get_translation_between_points(
 ) -> tuple[float, float, float] | None:
     """Get the XYZ translation between two points.
 
-    Each Position along the path must have one VectorXYZ PositionCoordinate.
-    Coordinates must share one ``as-seen-by`` frame and one QUDT unit.
-    Without ``rng``, only explicit XYZ values are read and their lookup errors
-    are propagated. With ``rng``, missing XYZ values may be sampled from a
-    SampledQuantity distribution.
+    Each Position along the path must have one VectorXYZ PositionCoordinate,
+    and all coordinates must share one QUDT unit. Without ``rng``, only
+    explicit XYZ values are read and their lookup errors are propagated. With
+    ``rng``, missing XYZ values may be sampled from a SampledQuantity
+    distribution.
 
     Parameters:
         of_point: point at the start of the path
@@ -252,7 +213,6 @@ def get_translation_between_points(
         return None
 
     translation = [0.0, 0.0, 0.0]
-    as_seen_by = None
     unit = None
     for position in path:
         coordinates = list(graph.subjects(URI_GEOM_PRED_OF_POSITION, position))
@@ -277,14 +237,6 @@ def get_translation_between_points(
             raise ConstraintViolation(
                 "geometry",
                 "PositionCoordinates in a path must share one unit",
-            )
-        if as_seen_by is None:
-            as_seen_by = coordinate.as_seen_by
-        elif coordinate.as_seen_by != as_seen_by:
-            raise ConstraintViolation(
-                "geometry",
-                f"PositionCoords {coordinate.id} has mismatching 'as-seen-by' frames:"
-                f" {as_seen_by} != {coordinate.as_seen_by}",
             )
         if rng is None:
             values = get_coord_vectorxyz(coordinate, graph)
@@ -311,9 +263,8 @@ def get_rotation_between_frames(
     """Get the rotation between two frames.
 
     Each Orientation along the path must have one OrientationCoordinate.
-    Coordinates must share one ``as-seen-by`` frame. Without ``rng``, only
-    explicit values are read. With ``rng``, missing values may be sampled from
-    a UniformRotation distribution.
+    Without ``rng``, only explicit values are read. With ``rng``, missing
+    values may be sampled from a UniformRotation distribution.
 
     Parameters:
         of_frame: frame at the start of the path
@@ -331,7 +282,6 @@ def get_rotation_between_frames(
         return None
 
     result = Rotation.identity()
-    as_seen_by = None
     for orientation in path:
         coordinates = list(graph.subjects(URI_GEOM_PRED_OF_ORIENT, orientation))
         if len(coordinates) != 1 or not isinstance(coordinates[0], URIRef):
@@ -342,15 +292,6 @@ def get_rotation_between_frames(
             )
 
         coordinate = OrientCoordModel(coordinates[0], graph)
-        if as_seen_by is None:
-            as_seen_by = coordinate.as_seen_by
-        elif coordinate.as_seen_by != as_seen_by:
-            raise ConstraintViolation(
-                "geometry",
-                f"OrientationCoordinates '{coordinate.id}' has mismatching 'as-seen-by' frames:"
-                f" {as_seen_by} != {coordinate.as_seen_by}",
-            )
-
         if rng is None:
             rotation = get_orientation_coord(coordinate, graph)
             if rotation is None:
