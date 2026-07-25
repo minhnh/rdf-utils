@@ -5,9 +5,11 @@ Coordinate models and values using concepts from
 [SECORO](https://github.com/secorolab/metamodels/) group.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from rdflib import BNode, Graph, Literal, URIRef
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import RigidTransform, Rotation
 
 from rdf_utils.collection import add_literal_list_pred, load_list_re
 from rdf_utils.constraints import ConstraintViolation
@@ -20,6 +22,7 @@ from rdf_utils.models.geom_rel import (
     PoseModel,
     PositionModel,
     find_orientation_path,
+    find_pose_path,
     find_position_path,
 )
 from rdf_utils.models.vocab import (
@@ -55,9 +58,14 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
     URI_QUDT_PRED_UNIT,
+    URI_QUDT_UNIT_CM,
     URI_QUDT_UNIT_DEG,
+    URI_QUDT_UNIT_M,
+    URI_QUDT_UNIT_MM,
     URI_QUDT_UNIT_RAD,
 )
+
+LENGTH_UNITS: set[URIRef] = {URI_QUDT_UNIT_M, URI_QUDT_UNIT_CM, URI_QUDT_UNIT_MM}
 
 
 class IFrameRelationCoord(ModelBase):
@@ -92,10 +100,23 @@ class IFrameRelationCoord(ModelBase):
 class PoseCoordModel(IFrameRelationCoord):
     """Model object for a PoseCoordinate.
 
+    The position and orientation components may be supplied directly by a
+    combined coordinate node or resolved from the Pose's referenced Position
+    and Orientation. Each resolved relation must have exactly one coordinate.
+    Direct transformation-matrix representations are not currently supported;
+    they may be added as an alternative to component-coordinate resolution.
+
+    Attributes:
+        position_coord: resolved PositionCoordinate model
+        orientation_coord: resolved OrientationCoordinate model
+
     Parameters:
         coord_id: URI of the PoseCoordinate in the graph
         graph: RDF graph for loading attributes
     """
+
+    position_coord: PositionCoordModel
+    orientation_coord: OrientCoordModel
 
     def __init__(self, coord_id: URIRef, graph: Graph) -> None:
         pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
@@ -112,6 +133,58 @@ class PoseCoordModel(IFrameRelationCoord):
             raise TypeError(f"'{self.id}' is not a PoseCoordinate")
         if URI_GEOM_TYPE_POSE_REF not in self.types:
             raise TypeError(f"'{self.id}' is not a PoseReference")
+
+        coordinate_types = self.types & {
+            URI_GEOM_TYPE_POSE_COORD,
+            URI_GEOM_TYPE_POSITION_COORD,
+            URI_GEOM_TYPE_ORIENT_COORD,
+        }
+        if URI_GEOM_TYPE_POSITION_COORD in coordinate_types:
+            if pose.position is None:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} is a PositionCoordinate but does not link to a Position",
+                )
+            if pose.position.coordinate_ids != {self.id}:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} has ambiguous position coords {pose.position.coordinate_ids}",
+                )
+            position_coord_id = self.id
+        else:
+            if pose.position is None or len(pose.position.coordinate_ids) != 1:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} is not a Position Coord and "
+                    f"does not link to a valid coord for Position {pose.position}",
+                )
+            position_coord_id = next(iter(pose.position.coordinate_ids))
+
+        if URI_GEOM_TYPE_ORIENT_COORD in coordinate_types:
+            if pose.orientation is None:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} is an OrientationCoordinate but does not link to an Orientation",
+                )
+            if pose.orientation.coordinate_ids != {self.id}:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} has ambiguous orientation coords {pose.orientation.coordinate_ids}",
+                )
+            orientation_coord_id = self.id
+        else:
+            if pose.orientation is None or len(pose.orientation.coordinate_ids) != 1:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"PoseCoordinate {self.id} is not a Orientation Coord and "
+                    f"does not link to a valid coord for Orientation {pose.orientation}",
+                )
+            orientation_coord_id = next(iter(pose.orientation.coordinate_ids))
+
+        self.position_coord = PositionCoordModel(position_coord_id, graph, relation=pose.position)
+        self.orientation_coord = OrientCoordModel(
+            orientation_coord_id, graph, relation=pose.orientation
+        )
 
 
 class OrientCoordModel(IFrameRelationCoord):
@@ -149,11 +222,12 @@ class OrientCoordModel(IFrameRelationCoord):
 
 
 class PositionCoordModel(ModelBase):
-    """Model object for a PoseCoordinate
+    """Model object for a PositionCoordinate.
 
     Attributes:
         position: Position relation to which the coordinate supplies values
         as_seen_by: URI of the coordinate's reference frame
+        unit: supported QUDT length unit used by the coordinate values
 
     Parameters:
         coord_id: URI of the PositionCoordinate in the graph
@@ -163,6 +237,7 @@ class PositionCoordModel(ModelBase):
 
     position: PositionModel
     as_seen_by: URIRef
+    unit: URIRef
 
     def __init__(
         self, coord_id: URIRef, graph: Graph, relation: PositionModel | None = None
@@ -197,6 +272,15 @@ class PositionCoordModel(ModelBase):
                 f"not '{relation.id}'",
             )
         self.position = relation or PositionModel(position_id=position_id, graph=graph)
+
+        units = LENGTH_UNITS.intersection(graph.objects(self.id, URI_QUDT_PRED_UNIT))
+        if len(units) != 1:
+            raise ConstraintViolation(
+                "geometry",
+                f"PositionCoordinate {self.id} must have one supported length unit, found {units}",
+            )
+        unit = next(iter(units))
+        self.unit = unit
 
 
 def get_translation_between_points(
@@ -243,16 +327,9 @@ def get_translation_between_points(
         coordinate = PositionCoordModel(
             next(iter(position.coordinate_ids)), graph, relation=position
         )
-        coordinate_units = list(graph.objects(coordinate.id, URI_QUDT_PRED_UNIT))
-        if len(coordinate_units) != 1 or not isinstance(coordinate_units[0], URIRef):
-            raise ConstraintViolation(
-                "geometry",
-                f"PositionCoordinate {coordinate.id} must have one URIRef unit, "
-                f"found {len(coordinate_units)}",
-            )
         if unit is None:
-            unit = coordinate_units[0]
-        elif coordinate_units[0] != unit:
+            unit = coordinate.unit
+        elif coordinate.unit != unit:
             raise ConstraintViolation(
                 "geometry",
                 "PositionCoordinates in a path must share one unit",
@@ -326,6 +403,105 @@ def get_rotation_between_frames(
                 materialize_sample=materialize_samples,
             )
         result = rotation * result
+
+    return result
+
+
+def get_pose_coord(
+    coord_model: PoseCoordModel,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_sample: bool = False,
+) -> RigidTransform:
+    """Get the rigid transform represented by a PoseCoordinate.
+
+    Parameters:
+        coord_model: PoseCoordinate model containing position and orientation coordinates
+        graph: RDF graph containing the coordinate values
+        rng: optional random generator that enables sampled coordinates
+        materialize_sample: whether to write newly sampled values to the graph
+
+    Returns:
+        rigid transform containing the Pose translation and rotation
+    """
+    if rng is None:
+        translation = get_coord_vectorxyz(coord_model.position_coord, graph)
+        rotation = get_orientation_coord(coord_model.orientation_coord, graph)
+        if rotation is None:
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.orientation_coord.id} has no orientation values",
+            )
+    else:
+        translation = get_or_sample_coord_vectorxyz(
+            coord_model.position_coord,
+            graph,
+            rng=rng,
+            materialize_sample=materialize_sample,
+        )
+        rotation = get_or_sample_orientation_coord(
+            coord_model.orientation_coord,
+            graph,
+            rng=rng,
+            materialize_sample=materialize_sample,
+        )
+
+    return RigidTransform.from_components(translation, rotation)
+
+
+def get_transform_between_frames(
+    of_frame: URIRef,
+    wrt_frame: URIRef,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_samples: bool = False,
+) -> RigidTransform | None:
+    """Get the rigid transform between two frames.
+
+    Each Pose along the path must have exactly one PoseCoordinate that resolves
+    to both a PositionCoordinate and an OrientationCoordinate. Position
+    coordinates along the path must share one QUDT unit. Missing coordinate
+    values may be sampled when an ``rng`` is supplied.
+
+    Parameters:
+        of_frame: frame at the start of the path
+        wrt_frame: frame at the end of the path
+        graph: RDF graph containing Pose relations and coordinates
+        rng: optional random generator that enables sampled coordinates
+        materialize_samples: whether to write newly sampled values to the graph
+
+    Returns:
+        composed rigid transform, identity for the same frame, or None when no
+        Pose path exists
+    """
+    path = find_pose_path(of_frame, wrt_frame, graph)
+    if path is None:
+        return None
+
+    result = RigidTransform.identity()
+    unit = None
+    for pose in path:
+        if len(pose.coordinate_ids) != 1:
+            raise ConstraintViolation(
+                "geometry",
+                f"Pose {pose.id} must have one coordinate, found {len(pose.coordinate_ids)}",
+            )
+        pose_coord = PoseCoordModel(next(iter(pose.coordinate_ids)), graph)
+        if unit is None:
+            unit = pose_coord.position_coord.unit
+        elif pose_coord.position_coord.unit != unit:
+            raise ConstraintViolation(
+                "geometry", "PositionCoordinates in a path must share one unit"
+            )
+        result = (
+            get_pose_coord(
+                pose_coord,
+                graph,
+                rng=rng,
+                materialize_sample=materialize_samples,
+            )
+            * result
+        )
 
     return result
 

@@ -199,6 +199,9 @@ class OrientationModel(IFrameRelationModel):
 class PoseModel(IFrameRelationModel):
     """Model object for a Pose relation.
 
+    Referenced Position endpoints must match the Pose frame origins, and
+    referenced Orientation endpoints must match the Pose frames.
+
     Attributes:
         coordinate_ids: URIs of coordinates that reference this Pose
         position: referenced Position, when the Pose is a PositionReference
@@ -235,6 +238,14 @@ class PoseModel(IFrameRelationModel):
                     f"Pose '{self.id}' has PositionReference type but does not link to a URI via 'of-position': {position_id}",
                 )
             self.position = PositionModel(position_id=position_id, graph=graph)
+            if (
+                self.of_frame.origin != self.position.of_id
+                or self.wrt_frame.origin != self.position.wrt_id
+            ):
+                raise ConstraintViolation(
+                    "geometry",
+                    f"Pose '{self.id}' refer to Position '{position_id}' but 'of' or 'wrt' frame origins do not match",
+                )
 
         self.orientation = None
         if URI_GEOM_TYPE_ORIENT_REF in self.types:
@@ -245,6 +256,11 @@ class PoseModel(IFrameRelationModel):
                     f"Pose '{self.id}' has OrientationReference type but does not link to a URI via 'of-orientation': {orn_id}",
                 )
             self.orientation = OrientationModel(orn_id=orn_id, graph=graph)
+            if self.of_id != self.orientation.of_id or self.wrt_id != self.orientation.wrt_id:
+                raise ConstraintViolation(
+                    "geometry",
+                    f"Pose '{self.id}' refer to Orientation '{orn_id}' but 'of' or 'wrt' frames do not match",
+                )
 
 
 def relation_neighbors(
@@ -419,7 +435,7 @@ def find_orientation_path(
     return [OrientationModel(orn_id=orientation_id, graph=graph) for orientation_id in path]
 
 
-def find_pose_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[URIRef] | None:
+def find_pose_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[PoseModel] | None:
     """Find the shortest directed Pose path between two frames.
 
     Parameters:
@@ -428,10 +444,13 @@ def find_pose_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[UR
         graph: RDF graph containing the Pose relations
 
     Returns:
-        Pose URIRefs in forward order, an empty list for the same frame, or
+        Pose models in forward order, an empty list for the same frame, or
         None when no path exists
     """
-    return find_relation_path(of_frame, wrt_frame, URI_GEOM_TYPE_POSE, graph)
+    path = find_relation_path(of_frame, wrt_frame, URI_GEOM_TYPE_POSE, graph)
+    if path is None:
+        return None
+    return [PoseModel(pose_id=pose_id, graph=graph) for pose_id in path]
 
 
 def find_velocity_twist_path(

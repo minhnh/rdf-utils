@@ -94,6 +94,8 @@ KINOVA_GEOM_MODEL = f"{URL_COMP_ROB2B}/robot-models/kinova/gen3/7dof/robot.geom.
 
 NS_TEST = Namespace(f"{URL_SECORO_M}/tests/geom/")
 URI_TEST_POSE = NS_TEST["pose"]
+URI_TEST_POSE_POSITION = NS_TEST["pose-position"]
+URI_TEST_POSE_ORIENTATION = NS_TEST["pose-orientation"]
 URI_TEST_REF_ORIGIN = NS_TEST["frame-reference-origin"]
 URI_TEST_BODY_ORIGIN = NS_TEST["frame-body-origin"]
 URI_TEST_FRAME_REF = NS_TEST["frame-reference"]
@@ -129,7 +131,18 @@ VALID_EULER_ANGLES = f"""
             "origin": "{URI_TEST_BODY_ORIGIN}"
         }},
         {{
-            "@id": "{URI_TEST_POSE}", "@type": "Pose",
+            "@id": "{URI_TEST_POSE}",
+            "@type": [ "Pose", "PositionReference", "OrientationReference" ],
+            "of": "{URI_TEST_FRAME_BODY}", "with-respect-to": "{URI_TEST_FRAME_REF}",
+            "of-position": "{URI_TEST_POSE_POSITION}",
+            "of-orientation": "{URI_TEST_POSE_ORIENTATION}"
+        }},
+        {{
+            "@id": "{URI_TEST_POSE_POSITION}", "@type": "Position",
+            "of": "{URI_TEST_BODY_ORIGIN}", "with-respect-to": "{URI_TEST_REF_ORIGIN}"
+        }},
+        {{
+            "@id": "{URI_TEST_POSE_ORIENTATION}", "@type": "Orientation",
             "of": "{URI_TEST_FRAME_BODY}", "with-respect-to": "{URI_TEST_FRAME_REF}"
         }},
         {{
@@ -139,9 +152,14 @@ VALID_EULER_ANGLES = f"""
         {{
             "@id": "{URI_TEST_EULER_POSE}",
             "@type": [
-                "VectorXYZ", "PoseReference", "PoseCoordinate", "EulerAngles", "AnglesABG", "Intrinsic"
+                "VectorXYZ", "PoseReference", "PoseCoordinate",
+                "PositionReference", "PositionCoordinate",
+                "OrientationReference", "OrientationCoordinate",
+                "EulerAngles", "AnglesABG", "Intrinsic"
             ],
             "of-pose": "{URI_TEST_POSE}",
+            "of-position": "{URI_TEST_POSE_POSITION}",
+            "of-orientation": "{URI_TEST_POSE_ORIENTATION}",
             "as-seen-by": "{URI_TEST_FRAME_REF}",
             "axes-sequence": "xyz",
             "unit": [ "M", "DEG" ],
@@ -180,6 +198,9 @@ class GeometryTest(unittest.TestCase):
 
         pose_model = PoseCoordModel(coord_id=URI_TEST_EULER_POSE, graph=euler_g)
         assert pose_model.relation.coordinate_ids == {URI_TEST_EULER_POSE}
+        assert pose_model.position_coord.id == URI_TEST_EULER_POSE
+        assert pose_model.orientation_coord.id == URI_TEST_EULER_POSE
+        assert pose_model.position_coord.unit == URI_QUDT_UNIT_M
         x, y, z = get_coord_vectorxyz(pose_model, euler_g)
         assert x == 10.0 and y == 5.0 and z == 0.0
 
@@ -457,7 +478,11 @@ class GeometryTest(unittest.TestCase):
                 expected = [relation_1, relation_2]
                 assert find_relation_path(first, last, relation_type, graph) == expected
                 wrapped_path = wrapper(first, last, graph)
-                if relation_type in (URI_GEOM_TYPE_POSITION, URI_GEOM_TYPE_ORIENT):
+                if relation_type in (
+                    URI_GEOM_TYPE_POSITION,
+                    URI_GEOM_TYPE_ORIENT,
+                    URI_GEOM_TYPE_POSE,
+                ):
                     assert [relation.id for relation in wrapped_path] == expected
                 else:
                     assert wrapped_path == expected
@@ -491,7 +516,7 @@ class GeometryTest(unittest.TestCase):
         graph.add((orientation, URI_GEOM_PRED_OF, first))
         graph.add((orientation, URI_GEOM_PRED_WRT, last))
 
-        assert find_pose_path(first, last, graph) in (
+        assert [relation.id for relation in find_pose_path(first, last, graph)] in (
             [NS_TEST["pose-a1"], NS_TEST["pose-a2"]],
             [NS_TEST["pose-b1"], NS_TEST["pose-b2"]],
         )
