@@ -20,8 +20,10 @@ from rdf_utils.models.geom_coord import (
     get_or_sample_coord_vectorxyz,
     get_or_sample_orientation_coord,
     get_orientation_coord,
+    get_quaternion,
     get_rotation_between_frames,
     get_translation_between_points,
+    set_orientation_coord,
 )
 from rdf_utils.models.geom_rel import (
     find_acceleration_twist_path,
@@ -46,6 +48,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_ORIGIN,
     URI_GEOM_PRED_SEEN_BY,
+    URI_GEOM_PRED_W,
     URI_GEOM_PRED_WRT,
     URI_GEOM_PRED_X,
     URI_GEOM_PRED_Y,
@@ -64,6 +67,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION,
     URI_GEOM_TYPE_POSITION_COORD,
     URI_GEOM_TYPE_POSITION_REF,
+    URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_SIMPLICIAL_COMPLEX,
     URI_GEOM_TYPE_VECTOR_XYZ,
     URI_GEOM_TYPE_VELOCITY_TWIST,
@@ -272,6 +276,26 @@ class GeometryTest(unittest.TestCase):
         assert np.allclose(get_direction_cosine_matrix(dc_model, graph), reflection)
         with self.assertRaises(ConstraintViolation):
             get_orientation_coord(dc_model, graph)
+
+        quaternion_coord = NS_TEST["quaternion-orientation"]
+        add_orientation_coordinate(quaternion_coord, URI_GEOM_TYPE_QUATERNION)
+        quaternion_model = OrientCoordModel(quaternion_coord, graph)
+        assert get_quaternion(quaternion_model, graph) is None
+        assert get_orientation_coord(quaternion_model, graph) is None
+        set_orientation_coord(quaternion_model, expected, graph)
+        assert np.allclose(get_quaternion(quaternion_model, graph), expected.as_quat())
+        assert np.allclose(
+            get_orientation_coord(quaternion_model, graph).as_matrix(), expected.as_matrix()
+        )
+
+        graph.remove((quaternion_coord, URI_GEOM_PRED_W, None))
+        with self.assertRaises(ConstraintViolation):
+            get_orientation_coord(quaternion_model, graph)
+        for predicate in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z):
+            graph.set((quaternion_coord, predicate, Literal(0.0)))
+        graph.set((quaternion_coord, URI_GEOM_PRED_W, Literal(0.0)))
+        with self.assertRaises(ConstraintViolation):
+            get_orientation_coord(quaternion_model, graph)
 
         sampled_coord = NS_TEST["sampled-orientation"]
         add_orientation_coordinate(sampled_coord, URI_DISTRIB_TYPE_SAMPLED_QUANTITY)

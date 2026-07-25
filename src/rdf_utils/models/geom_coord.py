@@ -30,6 +30,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF_POSE,
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_SEEN_BY,
+    URI_GEOM_PRED_W,
     URI_GEOM_PRED_WRT,
     URI_GEOM_PRED_X,
     URI_GEOM_PRED_Y,
@@ -45,6 +46,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSE_REF,
     URI_GEOM_TYPE_POSITION_COORD,
     URI_GEOM_TYPE_POSITION_REF,
+    URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_DEG,
@@ -639,11 +641,47 @@ def get_direction_cosine_matrix(
     return matrix
 
 
+def get_quaternion(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray | None:
+    """Extract a scalar-last Quaternion from a graph.
+
+    Parameters:
+        coord_model: pose or orientation coordinate model
+        graph: RDF graph to look for coordinate attributes
+
+    Returns:
+        quaternion values in x, y, z, w order, or None when no values are present
+    """
+    if URI_GEOM_TYPE_QUATERNION not in coord_model.types:
+        raise ValueError(f"Coordinate '{coord_model.id}' is not a Quaternion")
+
+    predicates = (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z, URI_GEOM_PRED_W)
+    nodes_by_predicate = [list(graph.objects(coord_model.id, pred)) for pred in predicates]
+    if not any(nodes_by_predicate):
+        return None
+
+    values = []
+    for predicate, nodes in zip(predicates, nodes_by_predicate):
+        if len(nodes) != 1 or not isinstance(nodes[0], Literal):
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} must have one float for {predicate}"
+            )
+        value = nodes[0].toPython()
+        if not isinstance(value, float) or not np.isfinite(value):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one finite float for {predicate}",
+            )
+        values.append(value)
+
+    return np.asarray(values)
+
+
 def _orientation_representation(coord_model: IFrameRelationCoord) -> URIRef | None:
     """Return the coordinate representation, rejecting incomplete or ambiguous typing."""
     representations = coord_model.types & {
         URI_GEOM_TYPE_EULER_ANGLES,
         URI_GEOM_TYPE_DIRECTION_COSINE_XYZ,
+        URI_GEOM_TYPE_QUATERNION,
     }
     if len(representations) > 1:
         raise ConstraintViolation(
@@ -693,6 +731,17 @@ def get_orientation_coord(coord_model: IFrameRelationCoord, graph: Graph) -> Rot
                 "geometry", f"Coordinate {coord_model.id} has invalid direction cosines: {error}"
             ) from error
 
+    if representation == URI_GEOM_TYPE_QUATERNION:
+        quaternion = get_quaternion(coord_model, graph)
+        if quaternion is None:
+            return None
+        try:
+            return Rotation.from_quat(quaternion)
+        except ValueError as error:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.id} has invalid quaternion values: {error}"
+            ) from error
+
     return None
 
 
@@ -701,9 +750,11 @@ def set_orientation_coord(
 ) -> None:
     """Write a rotation using the coordinate's declared representation.
 
-    EulerAngles coordinates are written as alpha, beta, and gamma values in
-    their declared axes sequence and unit. DirectionCosineXYZ coordinates are
-    written as three RDF-list matrix rows.
+    Coordinates are written by representation types as follows:
+    - EulerAngles: alpha, beta, and gamma values in their declared
+      axes sequence and unit;
+    - DirectionCosineXYZ: three RDF-list matrix rows;
+    - Quaternion: scalar-last x, y, z, w order.
 
     Parameters:
         coord_model: pose or orientation coordinate model
@@ -744,6 +795,14 @@ def set_orientation_coord(
             add_literal_list_pred(graph, coord_model.id, predicate, tuple(map(float, row)))
         return
 
+    if representation == URI_GEOM_TYPE_QUATERNION:
+        for predicate, value in zip(
+            (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z, URI_GEOM_PRED_W),
+            rotation.as_quat(),
+        ):
+            graph.set((coord_model.id, predicate, Literal(float(value))))
+        return
+
     raise ConstraintViolation(
         "geometry", f"Coordinate {coord_model.id} has no orientation representation"
     )
@@ -757,9 +816,9 @@ def get_or_sample_orientation_coord(
 ) -> Rotation:
     """Get an explicit orientation or sample a UniformRotation distribution.
 
-    Explicit EulerAngles or DirectionCosineXYZ values take precedence. When
-    they are absent, a SampledQuantity requires ``rng`` and a UniformRotation
-    distribution.
+    Explicit EulerAngles, DirectionCosineXYZ, or Quaternion values take
+    precedence. When they are absent, a SampledQuantity requires ``rng`` and
+    a UniformRotation distribution.
 
     Parameters:
         coord_model: pose or orientation coordinate model
