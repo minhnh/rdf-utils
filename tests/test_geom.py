@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-from rdflib import RDF, BNode, Graph, Literal, Namespace
+from rdflib import RDF, BNode, Graph, Literal, Namespace, URIRef
 from scipy.spatial.transform import Rotation
 
 from rdf_utils.collection import add_literal_list_pred
@@ -444,6 +444,8 @@ class GeometryTest(unittest.TestCase):
                 relation_2 = NS_TEST[f"{prefix}-2"]
                 for entity in (first, middle, last, missing):
                     graph.add((entity, RDF.type, entity_type))
+                    if entity_type == URI_GEOM_TYPE_FRAME:
+                        graph.add((entity, URI_GEOM_PRED_ORIGIN, URIRef(f"{entity}-origin")))
                 for relation, of_entity, wrt_entity in (
                     (relation_1, first, middle),
                     (relation_2, middle, last),
@@ -454,7 +456,11 @@ class GeometryTest(unittest.TestCase):
 
                 expected = [relation_1, relation_2]
                 assert find_relation_path(first, last, relation_type, graph) == expected
-                assert wrapper(first, last, graph) == expected
+                wrapped_path = wrapper(first, last, graph)
+                if relation_type in (URI_GEOM_TYPE_POSITION, URI_GEOM_TYPE_ORIENT):
+                    assert [relation.id for relation in wrapped_path] == expected
+                else:
+                    assert wrapped_path == expected
                 assert wrapper(first, first, graph) == []
                 assert wrapper(last, first, graph) is None
                 assert wrapper(first, missing, graph) is None
@@ -466,6 +472,7 @@ class GeometryTest(unittest.TestCase):
         )
         for frame in (first, left, right, last):
             graph.add((frame, RDF.type, URI_GEOM_TYPE_FRAME))
+            graph.add((frame, URI_GEOM_PRED_ORIGIN, URIRef(f"{frame}-origin")))
 
         edges = (
             (NS_TEST["pose-a1"], first, left),
@@ -488,7 +495,9 @@ class GeometryTest(unittest.TestCase):
             [NS_TEST["pose-a1"], NS_TEST["pose-a2"]],
             [NS_TEST["pose-b1"], NS_TEST["pose-b2"]],
         )
-        assert find_orientation_path(first, last, graph) == [orientation]
+        assert [relation.id for relation in find_orientation_path(first, last, graph)] == [
+            orientation
+        ]
 
     def test_translation_xyz(self):
         graph = Graph()

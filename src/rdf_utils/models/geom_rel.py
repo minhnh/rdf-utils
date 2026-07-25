@@ -70,6 +70,17 @@ class FrameModel(ModelBase):
 
 
 class IGeomRelationModel(ModelBase):
+    """Base model for a geometric relation between two entities.
+
+    Attributes:
+        of_id: URI of the entity described by the relation
+        wrt_id: URI of the reference entity
+
+    Parameters:
+        rel_id: URI of the geometric relation in the graph
+        graph: RDF graph for loading attributes
+    """
+
     of_id: URIRef
     wrt_id: URIRef
 
@@ -94,6 +105,17 @@ class IGeomRelationModel(ModelBase):
 
 
 class PositionModel(IGeomRelationModel):
+    """Model object for a Position relation.
+
+    Attributes:
+        pose_ids: URIs of Pose relations that reference this Position
+        coordinate_ids: URIs of coordinates that reference this Position
+
+    Parameters:
+        position_id: URI of the Position relation in the graph
+        graph: RDF graph for loading attributes
+    """
+
     pose_ids: set[URIRef]
     coordinate_ids: set[URIRef]
 
@@ -118,6 +140,17 @@ class PositionModel(IGeomRelationModel):
 
 
 class IFrameRelationModel(IGeomRelationModel):
+    """Base model for a geometric relation between two Frames.
+
+    Attributes:
+        of_frame: Frame described by the relation
+        wrt_frame: reference Frame
+
+    Parameters:
+        rel_id: URI of the frame relation in the graph
+        graph: RDF graph for loading attributes
+    """
+
     of_frame: FrameModel
     wrt_frame: FrameModel
 
@@ -129,6 +162,17 @@ class IFrameRelationModel(IGeomRelationModel):
 
 
 class OrientationModel(IFrameRelationModel):
+    """Model object for an Orientation relation.
+
+    Attributes:
+        pose_ids: URIs of Pose relations that reference this Orientation
+        coordinate_ids: URIs of coordinates that reference this Orientation
+
+    Parameters:
+        orn_id: URI of the Orientation relation in the graph
+        graph: RDF graph for loading attributes
+    """
+
     pose_ids: set[URIRef]
     coordinate_ids: set[URIRef]
 
@@ -153,6 +197,18 @@ class OrientationModel(IFrameRelationModel):
 
 
 class PoseModel(IFrameRelationModel):
+    """Model object for a Pose relation.
+
+    Attributes:
+        coordinate_ids: URIs of coordinates that reference this Pose
+        position: referenced Position, when the Pose is a PositionReference
+        orientation: referenced Orientation, when the Pose is an OrientationReference
+
+    Parameters:
+        pose_id: URI of the Pose relation in the graph
+        graph: RDF graph for loading attributes
+    """
+
     coordinate_ids: set[URIRef]
     position: PositionModel | None
     orientation: OrientationModel | None
@@ -323,7 +379,9 @@ def find_relation_path(
     return None
 
 
-def find_position_path(of_point: URIRef, wrt_point: URIRef, graph: Graph) -> list[URIRef] | None:
+def find_position_path(
+    of_point: URIRef, wrt_point: URIRef, graph: Graph
+) -> list[PositionModel] | None:
     """Find the shortest directed Position path between two points.
 
     Parameters:
@@ -332,13 +390,18 @@ def find_position_path(of_point: URIRef, wrt_point: URIRef, graph: Graph) -> lis
         graph: RDF graph containing the Position relations
 
     Returns:
-        Position URIRefs in forward order, an empty list for the same point,
+        Position models in forward order, an empty list for the same point,
         or None when no path exists
     """
-    return find_relation_path(of_point, wrt_point, URI_GEOM_TYPE_POSITION, graph)
+    path = find_relation_path(of_point, wrt_point, URI_GEOM_TYPE_POSITION, graph)
+    if path is None:
+        return None
+    return [PositionModel(position_id=position_id, graph=graph) for position_id in path]
 
 
-def find_orientation_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[URIRef] | None:
+def find_orientation_path(
+    of_frame: URIRef, wrt_frame: URIRef, graph: Graph
+) -> list[OrientationModel] | None:
     """Find the shortest directed Orientation path between two frames.
 
     Parameters:
@@ -347,10 +410,13 @@ def find_orientation_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> 
         graph: RDF graph containing the Orientation relations
 
     Returns:
-        Orientation URIRefs in forward order, an empty list for the same
-        frame, or None when no path exists
+        Orientation models in forward order, an empty list for the same frame,
+        or None when no path exists
     """
-    return find_relation_path(of_frame, wrt_frame, URI_GEOM_TYPE_ORIENT, graph)
+    path = find_relation_path(of_frame, wrt_frame, URI_GEOM_TYPE_ORIENT, graph)
+    if path is None:
+        return None
+    return [OrientationModel(orn_id=orientation_id, graph=graph) for orientation_id in path]
 
 
 def find_pose_path(of_frame: URIRef, wrt_frame: URIRef, graph: Graph) -> list[URIRef] | None:

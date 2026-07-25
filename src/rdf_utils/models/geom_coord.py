@@ -120,16 +120,25 @@ class OrientCoordModel(IFrameRelationCoord):
     Parameters:
         coord_id: URI of the OrientationCoordinate in the graph
         graph: RDF graph for loading attributes
+        relation: optional preloaded Orientation relation
     """
 
-    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+    def __init__(
+        self, coord_id: URIRef, graph: Graph, relation: OrientationModel | None = None
+    ) -> None:
         orient_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_ORIENT)
         if not isinstance(orient_id, URIRef):
             raise ConstraintViolation(
                 "geometry",
                 f"OrientationCoordinate '{coord_id}' does not link to a URI via 'of-orientation': {orient_id}",
             )
-        orientation = OrientationModel(orn_id=orient_id, graph=graph)
+        if relation is not None and relation.id != orient_id:
+            raise ConstraintViolation(
+                "geometry",
+                f"OrientationCoordinate '{coord_id}' references Orientation '{orient_id}', "
+                f"not '{relation.id}'",
+            )
+        orientation = relation or OrientationModel(orn_id=orient_id, graph=graph)
 
         super().__init__(coord_id=coord_id, relation=orientation, graph=graph)
 
@@ -149,12 +158,15 @@ class PositionCoordModel(ModelBase):
     Parameters:
         coord_id: URI of the PositionCoordinate in the graph
         graph: RDF graph for loading attributes
+        relation: optional preloaded Position relation
     """
 
     position: PositionModel
     as_seen_by: URIRef
 
-    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+    def __init__(
+        self, coord_id: URIRef, graph: Graph, relation: PositionModel | None = None
+    ) -> None:
         super().__init__(node_id=coord_id, graph=graph)
 
         if URI_GEOM_TYPE_POSITION_COORD not in self.types:
@@ -178,7 +190,13 @@ class PositionCoordModel(ModelBase):
                 f"PositionCoordinate '{self.id}' does not link to a URI via 'of-position': {position_id}",
             )
 
-        self.position = PositionModel(position_id=position_id, graph=graph)
+        if relation is not None and relation.id != position_id:
+            raise ConstraintViolation(
+                "geometry",
+                f"PositionCoordinate '{self.id}' references Position '{position_id}', "
+                f"not '{relation.id}'",
+            )
+        self.position = relation or PositionModel(position_id=position_id, graph=graph)
 
 
 def get_translation_between_points(
@@ -215,15 +233,16 @@ def get_translation_between_points(
     translation = [0.0, 0.0, 0.0]
     unit = None
     for position in path:
-        coordinates = list(graph.subjects(URI_GEOM_PRED_OF_POSITION, position))
-        if len(coordinates) != 1:
+        if len(position.coordinate_ids) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Position {position} must have one coordinate, found {len(coordinates)}",
+                f"Position {position.id} must have one coordinate, "
+                f"found {len(position.coordinate_ids)}",
             )
 
-        assert isinstance(coordinates[0], URIRef)
-        coordinate = PositionCoordModel(coordinates[0], graph)
+        coordinate = PositionCoordModel(
+            next(iter(position.coordinate_ids)), graph, relation=position
+        )
         coordinate_units = list(graph.objects(coordinate.id, URI_QUDT_PRED_UNIT))
         if len(coordinate_units) != 1 or not isinstance(coordinate_units[0], URIRef):
             raise ConstraintViolation(
@@ -283,15 +302,16 @@ def get_rotation_between_frames(
 
     result = Rotation.identity()
     for orientation in path:
-        coordinates = list(graph.subjects(URI_GEOM_PRED_OF_ORIENT, orientation))
-        if len(coordinates) != 1 or not isinstance(coordinates[0], URIRef):
+        if len(orientation.coordinate_ids) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Orientation {orientation} must have one URIRef coordinate, "
-                f"found {len(coordinates)}",
+                f"Orientation {orientation.id} must have one coordinate, "
+                f"found {len(orientation.coordinate_ids)}",
             )
 
-        coordinate = OrientCoordModel(coordinates[0], graph)
+        coordinate = OrientCoordModel(
+            next(iter(orientation.coordinate_ids)), graph, relation=orientation
+        )
         if rng is None:
             rotation = get_orientation_coord(coordinate, graph)
             if rotation is None:
