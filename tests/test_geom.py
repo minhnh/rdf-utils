@@ -113,6 +113,7 @@ VALID_EULER_ANGLES = f"""
         "{URL_MM_GEOM_COORD_SECO_JSON}",
         {{
             "of-orientation": {{ "@id": "geom-coord:of-orientation", "@type": "@id" }},
+            "of-position": {{ "@id": "geom-coord:of-position", "@type": "@id" }},
             "as-seen-by": {{ "@id": "geom-coord:as-seen-by", "@type": "@id" }},
             "of-pose": {{ "@id": "geom-coord:of-pose", "@type": "@id" }},
             "of": {{ "@id": "geom-rel:of", "@type": "@id" }},
