@@ -21,12 +21,13 @@ from rdf_utils.models.geometry import (
     find_relation_path,
     find_velocity_twist_path,
     get_coord_vectorxyz,
-    get_direction_cosines,
+    get_direction_cosine_matrix,
     get_euler_angles_abg,
     get_or_sample_coord_vectorxyz,
-    get_or_sample_scipy_rotation,
-    get_scipy_rotation,
-    get_translation_xyz,
+    get_or_sample_orientation_coord,
+    get_orientation_coord,
+    get_rotation_between_frames,
+    get_translation_between_points,
 )
 from rdf_utils.models.vocab import (
     URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
@@ -41,6 +42,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_ORIENT,
     URI_GEOM_PRED_OF_POSITION,
+    URI_GEOM_PRED_ORIGIN,
     URI_GEOM_PRED_SEEN_BY,
     URI_GEOM_PRED_WRT,
     URI_GEOM_PRED_X,
@@ -193,9 +195,9 @@ class GeometryTest(unittest.TestCase):
             get_euler_angles_abg(pose_model, euler_g)
         pose_model.types.add(URI_GEOM_TYPE_ANGLES_ABG)
 
-        rot = get_scipy_rotation(pose_model, euler_g)
+        rot = get_orientation_coord(pose_model, euler_g)
         assert np.allclose(
-            get_or_sample_scipy_rotation(pose_model, euler_g).as_matrix(), rot.as_matrix()
+            get_or_sample_orientation_coord(pose_model, euler_g).as_matrix(), rot.as_matrix()
         )
         if is_intrinsic:
             seq = seq.upper()
@@ -239,43 +241,43 @@ class GeometryTest(unittest.TestCase):
         dc_coord = NS_TEST["direction-cosine-orientation"]
         add_orientation_coordinate(dc_coord, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ)
         dc_model = OrientCoordModel(dc_coord, graph)
-        assert get_direction_cosines(dc_model, graph) is None
-        assert get_scipy_rotation(dc_model, graph) is None
+        assert get_direction_cosine_matrix(dc_model, graph) is None
+        assert get_orientation_coord(dc_model, graph) is None
         expected = Rotation.from_euler("z", 90, degrees=True)
         for predicate, row in zip(predicates, expected.as_matrix()):
             add_literal_list_pred(graph, dc_coord, predicate, tuple(row))
 
-        direction_cosines = get_direction_cosines(dc_model, graph)
+        direction_cosines = get_direction_cosine_matrix(dc_model, graph)
         assert isinstance(direction_cosines, np.ndarray)
         assert np.allclose(direction_cosines, expected.as_matrix())
-        assert np.allclose(get_scipy_rotation(dc_model, graph).as_matrix(), expected.as_matrix())
+        assert np.allclose(get_orientation_coord(dc_model, graph).as_matrix(), expected.as_matrix())
         assert np.allclose(
-            get_or_sample_scipy_rotation(dc_model, graph).as_matrix(), expected.as_matrix()
+            get_or_sample_orientation_coord(dc_model, graph).as_matrix(), expected.as_matrix()
         )
 
         graph.remove((dc_coord, predicates[0], None))
         with self.assertRaises(ConstraintViolation):
-            get_scipy_rotation(dc_model, graph)
+            get_orientation_coord(dc_model, graph)
         add_literal_list_pred(graph, dc_coord, predicates[0], (2.0, 0.0, 0.0))
         with self.assertRaises(ConstraintViolation):
-            get_scipy_rotation(dc_model, graph)
+            get_orientation_coord(dc_model, graph)
 
         for predicate in predicates:
             graph.remove((dc_coord, predicate, None))
         reflection = np.diag((1.0, 1.0, -1.0))
         for predicate, row in zip(predicates, reflection):
             add_literal_list_pred(graph, dc_coord, predicate, tuple(row))
-        assert np.allclose(get_direction_cosines(dc_model, graph), reflection)
+        assert np.allclose(get_direction_cosine_matrix(dc_model, graph), reflection)
         with self.assertRaises(ConstraintViolation):
-            get_scipy_rotation(dc_model, graph)
+            get_orientation_coord(dc_model, graph)
 
         sampled_coord = NS_TEST["sampled-orientation"]
         add_orientation_coordinate(sampled_coord, URI_DISTRIB_TYPE_SAMPLED_QUANTITY)
         sampled_model = OrientCoordModel(sampled_coord, graph)
-        assert get_scipy_rotation(sampled_model, graph) is None
+        assert get_orientation_coord(sampled_model, graph) is None
         rng = np.random.default_rng(42)
         with self.assertRaises(ConstraintViolation):
-            get_or_sample_scipy_rotation(sampled_model, graph)
+            get_or_sample_orientation_coord(sampled_model, graph)
 
         with (
             patch("rdf_utils.models.geometry.distrib_from_sampled_quantity") as get_distrib,
@@ -283,18 +285,20 @@ class GeometryTest(unittest.TestCase):
         ):
             get_distrib.return_value.types = set()
             with self.assertRaises(ConstraintViolation):
-                get_or_sample_scipy_rotation(sampled_model, graph, rng=rng)
+                get_or_sample_orientation_coord(sampled_model, graph, rng=rng)
 
             get_distrib.return_value.types = {URI_DISTRIB_TYPE_UNIFORM_ROT}
             before = set(graph)
-            assert get_or_sample_scipy_rotation(sampled_model, graph, rng=rng) is expected
+            assert get_or_sample_orientation_coord(sampled_model, graph, rng=rng) is expected
             assert set(graph) == before
 
             with self.assertRaises(ConstraintViolation):
-                get_or_sample_scipy_rotation(sampled_model, graph, rng=rng, materialize_sample=True)
+                get_or_sample_orientation_coord(
+                    sampled_model, graph, rng=rng, materialize_sample=True
+                )
             graph.add((sampled_coord, RDF.type, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ))
             sampled_model.types.add(URI_GEOM_TYPE_DIRECTION_COSINE_XYZ)
-            get_or_sample_scipy_rotation(sampled_model, graph, rng=rng, materialize_sample=True)
+            get_or_sample_orientation_coord(sampled_model, graph, rng=rng, materialize_sample=True)
             assert (sampled_coord, RDF.type, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ) in graph
             assert all(
                 isinstance(graph.value(sampled_coord, predicate), BNode) for predicate in predicates
@@ -302,7 +306,7 @@ class GeometryTest(unittest.TestCase):
 
             sample.reset_mock()
             assert np.allclose(
-                get_or_sample_scipy_rotation(sampled_model, graph, rng=rng).as_matrix(),
+                get_or_sample_orientation_coord(sampled_model, graph, rng=rng).as_matrix(),
                 expected.as_matrix(),
             )
             sample.assert_not_called()
@@ -319,9 +323,9 @@ class GeometryTest(unittest.TestCase):
             graph.add((euler_coord, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_DEG))
             euler_model = OrientCoordModel(euler_coord, graph)
             assert get_euler_angles_abg(euler_model, graph) is None
-            assert get_scipy_rotation(euler_model, graph) is None
+            assert get_orientation_coord(euler_model, graph) is None
             sample.return_value = Rotation.from_euler("XYZ", (10.0, 20.0, 30.0), degrees=True)
-            get_or_sample_scipy_rotation(euler_model, graph, rng=rng, materialize_sample=True)
+            get_or_sample_orientation_coord(euler_model, graph, rng=rng, materialize_sample=True)
             assert all(
                 graph.value(euler_coord, predicate) is not None
                 for predicate in (
@@ -333,10 +337,56 @@ class GeometryTest(unittest.TestCase):
             assert (euler_coord, RDF.type, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ) not in graph
             sample.reset_mock()
             assert np.allclose(
-                get_or_sample_scipy_rotation(euler_model, graph, rng=rng).as_matrix(),
+                get_or_sample_orientation_coord(euler_model, graph, rng=rng).as_matrix(),
                 sample.return_value.as_matrix(),
             )
             sample.assert_not_called()
+
+    def test_rotation_path(self):
+        graph = Graph()
+        frames = tuple(NS_TEST[f"rotation-frame-{index}"] for index in range(3))
+        seen_by = NS_TEST["rotation-seen-by"]
+        for index, frame in enumerate((*frames, seen_by)):
+            graph.add((frame, RDF.type, URI_GEOM_TYPE_FRAME))
+            graph.add((frame, URI_GEOM_PRED_ORIGIN, NS_TEST[f"rotation-origin-{index}"]))
+
+        rotations = (
+            Rotation.from_euler("x", 30, degrees=True),
+            Rotation.from_euler("y", 45, degrees=True),
+        )
+        for index, (of_frame, wrt_frame, rotation) in enumerate(zip(frames, frames[1:], rotations)):
+            orientation = NS_TEST[f"rotation-orientation-{index}"]
+            coordinate = NS_TEST[f"rotation-coordinate-{index}"]
+            graph.add((orientation, RDF.type, URI_GEOM_TYPE_ORIENT))
+            graph.add((orientation, URI_GEOM_PRED_OF, of_frame))
+            graph.add((orientation, URI_GEOM_PRED_WRT, wrt_frame))
+            for coord_type in (
+                URI_GEOM_TYPE_ORIENT_COORD,
+                URI_GEOM_TYPE_ORIENT_REF,
+                URI_GEOM_TYPE_DIRECTION_COSINE_XYZ,
+            ):
+                graph.add((coordinate, RDF.type, coord_type))
+            graph.add((coordinate, URI_GEOM_PRED_OF_ORIENT, orientation))
+            graph.add((coordinate, URI_GEOM_PRED_SEEN_BY, seen_by))
+            for predicate, row in zip(
+                (
+                    URI_GEOM_PRED_DIRECTION_COSINE_X,
+                    URI_GEOM_PRED_DIRECTION_COSINE_Y,
+                    URI_GEOM_PRED_DIRECTION_COSINE_Z,
+                ),
+                rotation.as_matrix(),
+            ):
+                add_literal_list_pred(graph, coordinate, predicate, tuple(row))
+
+        expected = rotations[1] * rotations[0]
+        assert np.allclose(
+            get_rotation_between_frames(frames[0], frames[2], graph).as_matrix(),
+            expected.as_matrix(),
+        )
+        assert np.allclose(
+            get_rotation_between_frames(frames[0], frames[0], graph).as_matrix(), np.eye(3)
+        )
+        assert get_rotation_between_frames(frames[2], frames[0], graph) is None
 
     def test_relation_paths(self):
         wrappers = {
@@ -437,14 +487,14 @@ class GeometryTest(unittest.TestCase):
                 graph.add((coordinate, predicate, Literal(value)))
 
         expected = tuple(sum(axis) for axis in zip(*translations))
-        assert get_translation_xyz(first, last, graph) == expected
-        assert get_translation_xyz(first, first, graph) == (0.0, 0.0, 0.0)
-        assert get_translation_xyz(last, first, graph) is None
+        assert get_translation_between_points(first, last, graph) == expected
+        assert get_translation_between_points(first, first, graph) == (0.0, 0.0, 0.0)
+        assert get_translation_between_points(last, first, graph) is None
 
         first_coordinate = NS_TEST["translation-coordinate-0"]
         graph.remove((first_coordinate, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ))
-        with self.assertRaises(ConstraintViolation):
-            get_translation_xyz(first, last, graph)
+        with self.assertRaises(ValueError):
+            get_translation_between_points(first, last, graph)
         graph.add((first_coordinate, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ))
 
         duplicate = NS_TEST["translation-coordinate-duplicate"]
@@ -462,19 +512,19 @@ class GeometryTest(unittest.TestCase):
             )
         )
         with self.assertRaises(ConstraintViolation):
-            get_translation_xyz(first, last, graph)
+            get_translation_between_points(first, last, graph)
         graph.remove((duplicate, None, None))
 
         second_coordinate = NS_TEST["translation-coordinate-1"]
         graph.remove((first_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
         with self.assertRaises(ConstraintViolation):
-            get_translation_xyz(first, last, graph)
+            get_translation_between_points(first, last, graph)
         graph.add((first_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
 
         graph.remove((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
         graph.add((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_MM))
         with self.assertRaises(ConstraintViolation):
-            get_translation_xyz(first, last, graph)
+            get_translation_between_points(first, last, graph)
         graph.remove((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_MM))
         graph.add((second_coordinate, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
 
@@ -487,7 +537,7 @@ class GeometryTest(unittest.TestCase):
             )
         )
         with self.assertRaises(ConstraintViolation):
-            get_translation_xyz(first, last, graph)
+            get_translation_between_points(first, last, graph)
 
         graph.remove((second_coordinate, URI_GEOM_PRED_SEEN_BY, None))
         graph.add((second_coordinate, URI_GEOM_PRED_SEEN_BY, frame))
@@ -495,7 +545,7 @@ class GeometryTest(unittest.TestCase):
             graph.remove((first_coordinate, predicate, None))
         graph.add((first_coordinate, RDF.type, URI_DISTRIB_TYPE_SAMPLED_QUANTITY))
         with self.assertRaises(ValueError):
-            get_translation_xyz(first, last, graph)
+            get_translation_between_points(first, last, graph)
 
         sample = np.array((0.5, 1.5, 2.5))
         rng = np.random.default_rng(42)
@@ -516,7 +566,9 @@ class GeometryTest(unittest.TestCase):
                 sampled + explicit for sampled, explicit in zip(sample, translations[1])
             )
             assert (
-                get_translation_xyz(first, last, graph, rng=rng, materialize_samples=True)
+                get_translation_between_points(
+                    first, last, graph, rng=rng, materialize_samples=True
+                )
                 == expected
             )
         assert get_coord_vectorxyz(PositionCoordModel(first_coordinate, graph), graph) == tuple(

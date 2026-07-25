@@ -464,7 +464,7 @@ def find_acceleration_twist_path(
     return find_relation_path(of_complex, wrt_complex, URI_GEOM_TYPE_ACCEL_TWIST, graph)
 
 
-def get_translation_xyz(
+def get_translation_between_points(
     of_point: URIRef,
     wrt_point: URIRef,
     graph: Graph,
@@ -473,11 +473,11 @@ def get_translation_xyz(
 ) -> tuple[float, float, float] | None:
     """Get the XYZ translation between two points.
 
-    VectorXYZ PositionCoordinates along the path must share one
-    ``as-seen-by`` frame and one QUDT unit. Other coordinate representations
-    are ignored. Without ``rng``, only explicit XYZ values are read and their
-    lookup errors are propagated. With ``rng``, missing XYZ values may be
-    sampled from a SampledQuantity distribution.
+    Each Position along the path must have one VectorXYZ PositionCoordinate.
+    Coordinates must share one ``as-seen-by`` frame and one QUDT unit.
+    Without ``rng``, only explicit XYZ values are read and their lookup errors
+    are propagated. With ``rng``, missing XYZ values may be sampled from a
+    SampledQuantity distribution.
 
     Parameters:
         of_point: point at the start of the path
@@ -499,20 +499,14 @@ def get_translation_xyz(
     as_seen_by = None
     unit = None
     for position in path:
-        coordinates = [
-            coord
-            for coord in graph.subjects(URI_GEOM_PRED_OF_POSITION, position)
-            if isinstance(coord, URIRef)
-            and (coord, RDF.type, URI_GEOM_TYPE_POSITION_COORD) in graph
-            and (coord, RDF.type, URI_GEOM_TYPE_VECTOR_XYZ) in graph
-        ]
+        coordinates = list(graph.subjects(URI_GEOM_PRED_OF_POSITION, position))
         if len(coordinates) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Position {position} must have one URIRef VectorXYZ "
-                f"PositionCoordinate, found {len(coordinates)}",
+                f"Position {position} must have one coordinate, found {len(coordinates)}",
             )
 
+        assert isinstance(coordinates[0], URIRef)
         coordinate = PositionCoordModel(coordinates[0], graph)
         coordinate_units = list(graph.objects(coordinate.id, URI_QUDT_PRED_UNIT))
         if len(coordinate_units) != 1 or not isinstance(coordinate_units[0], URIRef):
@@ -533,7 +527,8 @@ def get_translation_xyz(
         elif coordinate.as_seen_by != as_seen_by:
             raise ConstraintViolation(
                 "geometry",
-                "PositionCoordinates in a path must share one as-seen-by frame",
+                f"PositionCoords {coordinate.id} has mismatching 'as-seen-by' frames:"
+                f" {as_seen_by} != {coordinate.as_seen_by}",
             )
         if rng is None:
             values = get_coord_vectorxyz(coordinate, graph)
@@ -548,6 +543,74 @@ def get_translation_xyz(
         translation = [total + value for total, value in zip(translation, values)]
 
     return (translation[0], translation[1], translation[2])
+
+
+def get_rotation_between_frames(
+    of_frame: URIRef,
+    wrt_frame: URIRef,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_samples: bool = False,
+) -> Rotation | None:
+    """Get the rotation between two frames.
+
+    Each Orientation along the path must have one OrientationCoordinate.
+    Coordinates must share one ``as-seen-by`` frame. Without ``rng``, only
+    explicit values are read. With ``rng``, missing values may be sampled from
+    a UniformRotation distribution.
+
+    Parameters:
+        of_frame: frame at the start of the path
+        wrt_frame: frame at the end of the path
+        graph: RDF graph containing the Orientation relations and coordinates
+        rng: optional random generator that enables sampled coordinates
+        materialize_samples: whether to write newly sampled values to the graph
+
+    Returns:
+        composed rotation, identity for the same frame, or None when no
+        Orientation path exists
+    """
+    path = find_orientation_path(of_frame, wrt_frame, graph)
+    if path is None:
+        return None
+
+    result = Rotation.identity()
+    as_seen_by = None
+    for orientation in path:
+        coordinates = list(graph.subjects(URI_GEOM_PRED_OF_ORIENT, orientation))
+        if len(coordinates) != 1 or not isinstance(coordinates[0], URIRef):
+            raise ConstraintViolation(
+                "geometry",
+                f"Orientation {orientation} must have one URIRef coordinate, "
+                f"found {len(coordinates)}",
+            )
+
+        coordinate = OrientCoordModel(coordinates[0], graph)
+        if as_seen_by is None:
+            as_seen_by = coordinate.as_seen_by
+        elif coordinate.as_seen_by != as_seen_by:
+            raise ConstraintViolation(
+                "geometry",
+                f"OrientationCoordinates '{coordinate.id}' has mismatching 'as-seen-by' frames:"
+                f" {as_seen_by} != {coordinate.as_seen_by}",
+            )
+
+        if rng is None:
+            rotation = get_orientation_coord(coordinate, graph)
+            if rotation is None:
+                raise ConstraintViolation(
+                    "geometry", f"Coordinate {coordinate.id} has no orientation values"
+                )
+        else:
+            rotation = get_or_sample_orientation_coord(
+                coordinate,
+                graph,
+                rng=rng,
+                materialize_sample=materialize_samples,
+            )
+        result = rotation * result
+
+    return result
 
 
 def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
@@ -770,7 +833,9 @@ def get_euler_angles_abg(
     return seq, is_intrinsic, angle_unit, (angles[0], angles[1], angles[2])
 
 
-def get_direction_cosines(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray | None:
+def get_direction_cosine_matrix(
+    coord_model: IFrameRelationCoord, graph: Graph
+) -> np.ndarray | None:
     """Extract a DirectionCosineXYZ matrix from a graph.
 
     Parameters:
@@ -834,7 +899,7 @@ def _orientation_representation(coord_model: IFrameRelationCoord) -> URIRef | No
     return representations.pop() if representations else None
 
 
-def get_scipy_rotation(coord_model: IFrameRelationCoord, graph: Graph) -> Rotation | None:
+def get_orientation_coord(coord_model: IFrameRelationCoord, graph: Graph) -> Rotation | None:
     """Parse orientation coordinate in a graph into a SciPy Rotation.
 
     Handles and convert different orientation coordinate types into a
@@ -864,7 +929,7 @@ def get_scipy_rotation(coord_model: IFrameRelationCoord, graph: Graph) -> Rotati
             ) from error
 
     if representation == URI_GEOM_TYPE_DIRECTION_COSINE_XYZ:
-        matrix = get_direction_cosines(coord_model, graph)
+        matrix = get_direction_cosine_matrix(coord_model, graph)
         if matrix is None:
             return None
         try:
@@ -877,8 +942,20 @@ def get_scipy_rotation(coord_model: IFrameRelationCoord, graph: Graph) -> Rotati
     return None
 
 
-def set_scipy_rotation(coord_model: IFrameRelationCoord, rotation: Rotation, graph: Graph) -> None:
-    """Write a SciPy Rotation using the coordinate's declared representation."""
+def set_orientation_coord(
+    coord_model: IFrameRelationCoord, rotation: Rotation, graph: Graph
+) -> None:
+    """Write a rotation using the coordinate's declared representation.
+
+    EulerAngles coordinates are written as alpha, beta, and gamma values in
+    their declared axes sequence and unit. DirectionCosineXYZ coordinates are
+    written as three RDF-list matrix rows.
+
+    Parameters:
+        coord_model: pose or orientation coordinate model
+        rotation: SciPy Rotation to write
+        graph: RDF graph to update
+    """
     representation = _orientation_representation(coord_model)
     if representation == URI_GEOM_TYPE_EULER_ANGLES:
         seq, is_intrinsic = get_euler_angles_params(coord_model, graph)
@@ -918,14 +995,28 @@ def set_scipy_rotation(coord_model: IFrameRelationCoord, rotation: Rotation, gra
     )
 
 
-def get_or_sample_scipy_rotation(
+def get_or_sample_orientation_coord(
     coord_model: IFrameRelationCoord,
     graph: Graph,
     rng: np.random.Generator | None = None,
     materialize_sample: bool = False,
 ) -> Rotation:
-    """Get an explicit orientation or sample a UniformRotation distribution."""
-    rotation = get_scipy_rotation(coord_model, graph)
+    """Get an explicit orientation or sample a UniformRotation distribution.
+
+    Explicit EulerAngles or DirectionCosineXYZ values take precedence. When
+    they are absent, a SampledQuantity requires ``rng`` and a UniformRotation
+    distribution.
+
+    Parameters:
+        coord_model: pose or orientation coordinate model
+        graph: RDF graph containing the coordinate or distribution
+        rng: random generator required for a sampled coordinate
+        materialize_sample: whether to write the sampled rotation to the graph
+
+    Returns:
+        explicit or sampled orientation as a SciPy Rotation
+    """
+    rotation = get_orientation_coord(coord_model, graph)
     if rotation is not None:
         return rotation
 
@@ -953,6 +1044,6 @@ def get_or_sample_scipy_rotation(
         )
 
     if materialize_sample:
-        set_scipy_rotation(coord_model, rotation, graph)
+        set_orientation_coord(coord_model, rotation, graph)
 
     return rotation
