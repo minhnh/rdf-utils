@@ -20,8 +20,9 @@ from rdf_utils.models.geom_coord import (
     get_or_sample_coord_vectorxyz,
     get_or_sample_orientation_coord,
     get_orientation_coord_vals,
-    get_quaternion,
+    get_quaternion_xyzw,
     get_rotation_between_frames,
+    get_transform_between_frames,
     get_translation_between_points,
     set_orientation_coord,
 )
@@ -45,6 +46,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_GAMMA,
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_ORIENT,
+    URI_GEOM_PRED_OF_POSE,
     URI_GEOM_PRED_OF_POSITION,
     URI_GEOM_PRED_ORIGIN,
     URI_GEOM_PRED_SEEN_BY,
@@ -64,6 +66,8 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_ORIENT_REF,
     URI_GEOM_TYPE_POINT,
     URI_GEOM_TYPE_POSE,
+    URI_GEOM_TYPE_POSE_COORD,
+    URI_GEOM_TYPE_POSE_REF,
     URI_GEOM_TYPE_POSITION,
     URI_GEOM_TYPE_POSITION_COORD,
     URI_GEOM_TYPE_POSITION_REF,
@@ -208,6 +212,11 @@ class GeometryTest(unittest.TestCase):
         seq, is_intrinsic, unit, angles = get_euler_angles_abg(pose_model, euler_g)
         assert angles[0] == 45.0 and angles[1] == 0.0 and angles[2] == 0.0
 
+        euler_g.set((URI_TEST_EULER_POSE, URI_GEOM_PRED_ALPHA, Literal(float("nan"))))
+        with self.assertRaises(ConstraintViolation):
+            get_euler_angles_abg(pose_model, euler_g)
+        euler_g.set((URI_TEST_EULER_POSE, URI_GEOM_PRED_ALPHA, Literal(45.0)))
+
         euler_g.add((URI_TEST_EULER_POSE, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_RAD))
         with self.assertRaises(ConstraintViolation):
             get_euler_angles_abg(pose_model, euler_g)
@@ -307,10 +316,10 @@ class GeometryTest(unittest.TestCase):
         quaternion_coord = NS_TEST["quaternion-orientation"]
         add_orientation_coordinate(quaternion_coord, URI_GEOM_TYPE_QUATERNION)
         quaternion_model = OrientCoordModel(quaternion_coord, graph)
-        assert get_quaternion(quaternion_model, graph) is None
+        assert get_quaternion_xyzw(quaternion_model, graph) is None
         assert get_orientation_coord_vals(quaternion_model, graph) is None
         set_orientation_coord(quaternion_model, expected, graph)
-        assert np.allclose(get_quaternion(quaternion_model, graph), expected.as_quat())
+        assert np.allclose(get_quaternion_xyzw(quaternion_model, graph), expected.as_quat())
         assert np.allclose(
             get_orientation_coord_vals(quaternion_model, graph).as_matrix(), expected.as_matrix()
         )
@@ -442,6 +451,93 @@ class GeometryTest(unittest.TestCase):
             get_rotation_between_frames(frames[0], frames[0], graph).as_matrix(), np.eye(3)
         )
         assert get_rotation_between_frames(frames[2], frames[0], graph) is None
+
+    def test_transform_path(self):
+        graph = Graph()
+        frames = tuple(NS_TEST[f"transform-frame-{index}"] for index in range(3))
+        origins = tuple(NS_TEST[f"transform-origin-{index}"] for index in range(3))
+        for frame, origin in zip(frames, origins):
+            graph.add((frame, RDF.type, URI_GEOM_TYPE_FRAME))
+            graph.add((frame, URI_GEOM_PRED_ORIGIN, origin))
+
+        translations = (np.array((1.0, 2.0, 3.0)), np.array((4.0, 5.0, 6.0)))
+        rotations = (
+            Rotation.from_euler("x", 30, degrees=True),
+            Rotation.from_euler("y", 45, degrees=True),
+        )
+        position_coords = []
+        for index, (of_frame, wrt_frame, translation, rotation) in enumerate(
+            zip(frames, frames[1:], translations, rotations)
+        ):
+            pose = NS_TEST[f"transform-pose-{index}"]
+            position = NS_TEST[f"transform-position-{index}"]
+            orientation = NS_TEST[f"transform-orientation-{index}"]
+            pose_coord = NS_TEST[f"transform-pose-coordinate-{index}"]
+            position_coord = NS_TEST[f"transform-position-coordinate-{index}"]
+            orientation_coord = NS_TEST[f"transform-orientation-coordinate-{index}"]
+            position_coords.append(position_coord)
+
+            for relation, relation_type, of_entity, wrt_entity in (
+                (pose, URI_GEOM_TYPE_POSE, of_frame, wrt_frame),
+                (position, URI_GEOM_TYPE_POSITION, origins[index], origins[index + 1]),
+                (orientation, URI_GEOM_TYPE_ORIENT, of_frame, wrt_frame),
+            ):
+                graph.add((relation, RDF.type, relation_type))
+                graph.add((relation, URI_GEOM_PRED_OF, of_entity))
+                graph.add((relation, URI_GEOM_PRED_WRT, wrt_entity))
+
+            for relation_type in (URI_GEOM_TYPE_POSITION_REF, URI_GEOM_TYPE_ORIENT_REF):
+                graph.add((pose, RDF.type, relation_type))
+            graph.add((pose, URI_GEOM_PRED_OF_POSITION, position))
+            graph.add((pose, URI_GEOM_PRED_OF_ORIENT, orientation))
+
+            for coord_type in (URI_GEOM_TYPE_POSE_COORD, URI_GEOM_TYPE_POSE_REF):
+                graph.add((pose_coord, RDF.type, coord_type))
+            graph.add((pose_coord, URI_GEOM_PRED_OF_POSE, pose))
+            graph.add((pose_coord, URI_GEOM_PRED_SEEN_BY, wrt_frame))
+
+            for coord_type in (
+                URI_GEOM_TYPE_POSITION_COORD,
+                URI_GEOM_TYPE_POSITION_REF,
+                URI_GEOM_TYPE_VECTOR_XYZ,
+            ):
+                graph.add((position_coord, RDF.type, coord_type))
+            graph.add((position_coord, URI_GEOM_PRED_OF_POSITION, position))
+            graph.add((position_coord, URI_GEOM_PRED_SEEN_BY, wrt_frame))
+            graph.add((position_coord, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_M))
+            for predicate, value in zip(
+                (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z), translation
+            ):
+                graph.add((position_coord, predicate, Literal(float(value))))
+
+            for coord_type in (
+                URI_GEOM_TYPE_ORIENT_COORD,
+                URI_GEOM_TYPE_ORIENT_REF,
+                URI_GEOM_TYPE_QUATERNION,
+            ):
+                graph.add((orientation_coord, RDF.type, coord_type))
+            graph.add((orientation_coord, URI_GEOM_PRED_OF_ORIENT, orientation))
+            graph.add((orientation_coord, URI_GEOM_PRED_SEEN_BY, wrt_frame))
+            for predicate, value in zip(
+                (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z, URI_GEOM_PRED_W),
+                rotation.as_quat(),
+            ):
+                graph.add((orientation_coord, predicate, Literal(float(value))))
+
+        transform = get_transform_between_frames(frames[0], frames[2], graph)
+        assert transform is not None
+        expected_rotation = rotations[1] * rotations[0]
+        expected_translation = rotations[1].apply(translations[0]) + translations[1]
+        assert np.allclose(transform.rotation.as_matrix(), expected_rotation.as_matrix())
+        assert np.allclose(transform.translation, expected_translation)
+        assert np.allclose(
+            get_transform_between_frames(frames[0], frames[0], graph).as_matrix(), np.eye(4)
+        )
+        assert get_transform_between_frames(frames[2], frames[0], graph) is None
+
+        graph.set((position_coords[1], URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_MM))
+        with self.assertRaises(ConstraintViolation):
+            get_transform_between_frames(frames[0], frames[2], graph)
 
     def test_relation_paths(self):
         wrappers = {

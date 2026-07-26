@@ -1,4 +1,4 @@
-# SPDX-Litense-Identifier:  MPL-2.0
+# SPDX-License-Identifier:  MPL-2.0
 """
 Coordinate models and values using concepts from
 [comp-rob2b](https://github.com/comp-rob2b/metamodels/) and ones introduced for use by the
@@ -186,7 +186,7 @@ class PoseCoordModel(IFrameRelationCoord):
             if pose.orientation is None or len(pose.orientation.coordinate_ids) != 1:
                 raise ConstraintViolation(
                     "geometry",
-                    f"PoseCoordinate {self.id} is not a Orientation Coord and "
+                    f"PoseCoordinate {self.id} is not an Orientation Coord and "
                     f"does not link to a valid coord for Orientation {pose.orientation}",
                 )
             orientation_coord_id = next(iter(pose.orientation.coordinate_ids))
@@ -283,7 +283,6 @@ class PositionCoordModel(ModelBase):
         elif position.id != position_id:
             raise ConstraintViolation(
                 "geometry",
-                f"PositionCoordinate '{self.id}' references Position '{position_id}', "
                 f"PositionCoordinate '{coord_id}' receives position arg ({position}) with mismatching "
                 f"'of-position' URI: {position_id} != {position.id}",
             )
@@ -691,7 +690,7 @@ def get_or_sample_coord_vectorxyz(
 
 
 def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> tuple[str, bool]:
-    """Extract parameters for a EulerAngles model.
+    """Extract parameters for an EulerAngles model.
 
     Parameters:
         coord_model: coordinate model object, either PoseCoordModel or OrientCoordModel
@@ -726,7 +725,7 @@ def get_euler_angles_params(coord_model: IFrameRelationCoord, graph: Graph) -> t
 def get_euler_angles_abg(
     coord_model: IFrameRelationCoord, graph: Graph
 ) -> tuple[str, bool, URIRef, tuple[float, float, float]] | None:
-    """Extract coordinates for a AnglesAlphaBetaGamma model.
+    """Extract coordinates for an AnglesAlphaBetaGamma model.
 
     Parameters:
         coord_model: coordinate model object, either PoseCoordModel or OrientCoordModel
@@ -746,31 +745,34 @@ def get_euler_angles_abg(
     seq, is_intrinsic = get_euler_angles_params(coord_model=coord_model, graph=graph)
 
     angles = []
-    missing_value = False
     for predicate in (URI_GEOM_PRED_ALPHA, URI_GEOM_PRED_BETA, URI_GEOM_PRED_GAMMA):
         nodes = list(graph.objects(coord_model.id, predicate))
-        num_nodes = len(nodes)
-        if num_nodes == 0:
-            missing_value = True
+        if not nodes:
             continue
 
-        if num_nodes > 1:
+        if len(nodes) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Euler Coordinate {coord_model.id} must have zero or one value for {predicate}, found {num_nodes}",
+                f"Euler Coordinate {coord_model.id} must have zero or one value for {predicate}, found {nodes}",
             )
 
-        if not isinstance(nodes[0], Literal) or not isinstance(nodes[0].toPython(), float):
+        if not isinstance(nodes[0], Literal):
             raise ConstraintViolation(
                 "geometry",
-                f"Coordinate {coord_model.id} must have one float for {predicate}, found: {nodes[0]}",
+                f"Coordinate {coord_model.id} must have one finite float for {predicate}, found: {nodes[0]}",
             )
-        angles.append(float(nodes[0].toPython()))
+        value = nodes[0].toPython()
+        if not isinstance(value, float) or not np.isfinite(value):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one finite float for {predicate}, found: {value}",
+            )
+        angles.append(value)
 
     if not angles:
         return None
 
-    if missing_value:
+    if len(angles) != 3:
         # This implies one of the angles was skipped but not all
         raise ConstraintViolation(
             "geometry",
@@ -811,34 +813,43 @@ def get_direction_cosine_matrix(
     if URI_GEOM_TYPE_DIRECTION_COSINE_XYZ not in coord_model.types:
         raise ValueError(f"Coordinate '{coord_model.id}' is not a DirectionCosineXYZ")
 
-    predicates = (
+    rows = []
+    for pred in (
         URI_GEOM_PRED_DIRECTION_COSINE_X,
         URI_GEOM_PRED_DIRECTION_COSINE_Y,
         URI_GEOM_PRED_DIRECTION_COSINE_Z,
-    )
-    row_nodes_by_predicate = [list(graph.objects(coord_model.id, pred)) for pred in predicates]
-    if not any(row_nodes_by_predicate):
-        return None
+    ):
+        row_nodes = list(graph.objects(coord_model.id, pred))
+        if not row_nodes:
+            # allow no value
+            continue
 
-    rows = []
-    for predicate, row_nodes in zip(predicates, row_nodes_by_predicate):
         if len(row_nodes) != 1 or not isinstance(row_nodes[0], BNode):
             raise ConstraintViolation(
                 "geometry",
-                f"Coordinate {coord_model.id} must have one RDF list for {predicate}",
+                f"Coordinate {coord_model.id} must have one RDF list for {pred}",
             )
         try:
             row = np.asarray(load_list_re(graph, row_nodes[0], parse_uri=False), dtype=float)
         except (TypeError, ValueError, RuntimeError) as error:
             raise ConstraintViolation(
-                "geometry", f"Coordinate {coord_model.id} has invalid values for {predicate}"
+                "geometry", f"Coordinate {coord_model.id} has invalid values for {pred}"
             ) from error
         if row.shape != (3,) or not np.isfinite(row).all():
             raise ConstraintViolation(
                 "geometry",
-                f"Coordinate {coord_model.id} must have three finite values for {predicate}",
+                f"Coordinate {coord_model.id} must have three finite values for {pred}",
             )
         rows.append(row)
+
+    if not rows:
+        return None
+
+    if len(rows) != 3:
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} does not have 3 direction cosines, found: {len(rows)}",
+        )
 
     matrix = np.asarray(rows)
     if not np.allclose(matrix @ matrix.T, np.eye(3)):
@@ -848,7 +859,7 @@ def get_direction_cosine_matrix(
     return matrix
 
 
-def get_quaternion(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray | None:
+def get_quaternion_xyzw(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray | None:
     """Extract a scalar-last Quaternion from a graph.
 
     Parameters:
@@ -861,24 +872,36 @@ def get_quaternion(coord_model: IFrameRelationCoord, graph: Graph) -> np.ndarray
     if URI_GEOM_TYPE_QUATERNION not in coord_model.types:
         raise ValueError(f"Coordinate '{coord_model.id}' is not a Quaternion")
 
-    predicates = (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z, URI_GEOM_PRED_W)
-    nodes_by_predicate = [list(graph.objects(coord_model.id, pred)) for pred in predicates]
-    if not any(nodes_by_predicate):
-        return None
+    values: list[float] = []
+    for pred in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z, URI_GEOM_PRED_W):
+        val_nodes = list(graph.objects(coord_model.id, pred))
+        if not val_nodes:
+            # allow no value
+            continue
 
-    values = []
-    for predicate, nodes in zip(predicates, nodes_by_predicate):
-        if len(nodes) != 1 or not isinstance(nodes[0], Literal):
-            raise ConstraintViolation(
-                "geometry", f"Coordinate {coord_model.id} must have one float for {predicate}"
-            )
-        value = nodes[0].toPython()
-        if not isinstance(value, float) or not np.isfinite(value):
+        if len(val_nodes) != 1 or not isinstance(val_nodes[0], Literal):
             raise ConstraintViolation(
                 "geometry",
-                f"Coordinate {coord_model.id} must have one finite float for {predicate}",
+                f"Coordinate {coord_model.id} must have zero or one float literal for {pred}, found: {val_nodes}",
             )
-        values.append(value)
+
+        val = val_nodes[0].toPython()
+        if not isinstance(val, float) or not np.isfinite(val):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one finite float for {pred}, found: {val}",
+            )
+
+        values.append(val)
+
+    if not values:
+        return None
+
+    if len(values) != 4:
+        raise ConstraintViolation(
+            "geometry",
+            f"Coordinate {coord_model.id} does not have 4 quaternion values, found: {values}",
+        )
 
     return np.asarray(values)
 
@@ -909,7 +932,8 @@ def get_orientation_coord_vals(coord_model: IFrameRelationCoord, graph: Graph) -
         graph: RDF graph to look for coordinate attributes
 
     Returns:
-        Corresponding [SciPy Rotation](scipy.spatial.transform.Rotation)
+        corresponding [SciPy Rotation](scipy.spatial.transform.Rotation), or None when no
+        orientation values are present
     """
     representation = _orientation_representation(coord_model)
     if representation == URI_GEOM_TYPE_EULER_ANGLES:
@@ -939,7 +963,7 @@ def get_orientation_coord_vals(coord_model: IFrameRelationCoord, graph: Graph) -
             ) from error
 
     if representation == URI_GEOM_TYPE_QUATERNION:
-        quaternion = get_quaternion(coord_model, graph)
+        quaternion = get_quaternion_xyzw(coord_model, graph)
         if quaternion is None:
             return None
         try:

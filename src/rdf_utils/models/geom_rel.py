@@ -1,4 +1,4 @@
-# SPDX-Litense-Identifier:  MPL-2.0
+# SPDX-License-Identifier:  MPL-2.0
 """
 Geometry relation models and path traversal using concepts from
 [comp-rob2b](https://github.com/comp-rob2b/metamodels/) and ones introduced for use by the
@@ -244,7 +244,7 @@ class PoseModel(IFrameRelationModel):
             ):
                 raise ConstraintViolation(
                     "geometry",
-                    f"Pose '{self.id}' refer to Position '{position_id}' but 'of' or 'wrt' frame origins do not match",
+                    f"Pose '{self.id}' refers to Position '{position_id}' but 'of' or 'wrt' frame origins do not match",
                 )
 
         self.orientation = None
