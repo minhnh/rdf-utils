@@ -19,7 +19,7 @@ from rdf_utils.models.geom_coord import (
     get_euler_angles_abg,
     get_or_sample_coord_vectorxyz,
     get_or_sample_orientation_coord,
-    get_orientation_coord,
+    get_orientation_coord_vals,
     get_quaternion,
     get_rotation_between_frames,
     get_translation_between_points,
@@ -224,7 +224,7 @@ class GeometryTest(unittest.TestCase):
             get_euler_angles_abg(pose_model, euler_g)
         pose_model.types.add(URI_GEOM_TYPE_ANGLES_ABG)
 
-        rot = get_orientation_coord(pose_model, euler_g)
+        rot = get_orientation_coord_vals(pose_model, euler_g)
         assert np.allclose(
             get_or_sample_orientation_coord(pose_model, euler_g).as_matrix(), rot.as_matrix()
         )
@@ -273,7 +273,7 @@ class GeometryTest(unittest.TestCase):
         add_orientation_coordinate(dc_coord, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ)
         dc_model = OrientCoordModel(dc_coord, graph)
         assert get_direction_cosine_matrix(dc_model, graph) is None
-        assert get_orientation_coord(dc_model, graph) is None
+        assert get_orientation_coord_vals(dc_model, graph) is None
         expected = Rotation.from_euler("z", 90, degrees=True)
         for predicate, row in zip(predicates, expected.as_matrix()):
             add_literal_list_pred(graph, dc_coord, predicate, tuple(row))
@@ -281,17 +281,19 @@ class GeometryTest(unittest.TestCase):
         direction_cosines = get_direction_cosine_matrix(dc_model, graph)
         assert isinstance(direction_cosines, np.ndarray)
         assert np.allclose(direction_cosines, expected.as_matrix())
-        assert np.allclose(get_orientation_coord(dc_model, graph).as_matrix(), expected.as_matrix())
+        assert np.allclose(
+            get_orientation_coord_vals(dc_model, graph).as_matrix(), expected.as_matrix()
+        )
         assert np.allclose(
             get_or_sample_orientation_coord(dc_model, graph).as_matrix(), expected.as_matrix()
         )
 
         graph.remove((dc_coord, predicates[0], None))
         with self.assertRaises(ConstraintViolation):
-            get_orientation_coord(dc_model, graph)
+            get_orientation_coord_vals(dc_model, graph)
         add_literal_list_pred(graph, dc_coord, predicates[0], (2.0, 0.0, 0.0))
         with self.assertRaises(ConstraintViolation):
-            get_orientation_coord(dc_model, graph)
+            get_orientation_coord_vals(dc_model, graph)
 
         for predicate in predicates:
             graph.remove((dc_coord, predicate, None))
@@ -300,32 +302,32 @@ class GeometryTest(unittest.TestCase):
             add_literal_list_pred(graph, dc_coord, predicate, tuple(row))
         assert np.allclose(get_direction_cosine_matrix(dc_model, graph), reflection)
         with self.assertRaises(ConstraintViolation):
-            get_orientation_coord(dc_model, graph)
+            get_orientation_coord_vals(dc_model, graph)
 
         quaternion_coord = NS_TEST["quaternion-orientation"]
         add_orientation_coordinate(quaternion_coord, URI_GEOM_TYPE_QUATERNION)
         quaternion_model = OrientCoordModel(quaternion_coord, graph)
         assert get_quaternion(quaternion_model, graph) is None
-        assert get_orientation_coord(quaternion_model, graph) is None
+        assert get_orientation_coord_vals(quaternion_model, graph) is None
         set_orientation_coord(quaternion_model, expected, graph)
         assert np.allclose(get_quaternion(quaternion_model, graph), expected.as_quat())
         assert np.allclose(
-            get_orientation_coord(quaternion_model, graph).as_matrix(), expected.as_matrix()
+            get_orientation_coord_vals(quaternion_model, graph).as_matrix(), expected.as_matrix()
         )
 
         graph.remove((quaternion_coord, URI_GEOM_PRED_W, None))
         with self.assertRaises(ConstraintViolation):
-            get_orientation_coord(quaternion_model, graph)
+            get_orientation_coord_vals(quaternion_model, graph)
         for predicate in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z):
             graph.set((quaternion_coord, predicate, Literal(0.0)))
         graph.set((quaternion_coord, URI_GEOM_PRED_W, Literal(0.0)))
         with self.assertRaises(ConstraintViolation):
-            get_orientation_coord(quaternion_model, graph)
+            get_orientation_coord_vals(quaternion_model, graph)
 
         sampled_coord = NS_TEST["sampled-orientation"]
         add_orientation_coordinate(sampled_coord, URI_DISTRIB_TYPE_SAMPLED_QUANTITY)
         sampled_model = OrientCoordModel(sampled_coord, graph)
-        assert get_orientation_coord(sampled_model, graph) is None
+        assert get_orientation_coord_vals(sampled_model, graph) is None
         rng = np.random.default_rng(42)
         with self.assertRaises(ConstraintViolation):
             get_or_sample_orientation_coord(sampled_model, graph)
@@ -376,7 +378,7 @@ class GeometryTest(unittest.TestCase):
             graph.add((euler_coord, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_DEG))
             euler_model = OrientCoordModel(euler_coord, graph)
             assert get_euler_angles_abg(euler_model, graph) is None
-            assert get_orientation_coord(euler_model, graph) is None
+            assert get_orientation_coord_vals(euler_model, graph) is None
             sample.return_value = Rotation.from_euler("XYZ", (10.0, 20.0, 30.0), degrees=True)
             get_or_sample_orientation_coord(euler_model, graph, rng=rng, materialize_sample=True)
             assert all(

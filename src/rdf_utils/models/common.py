@@ -2,6 +2,7 @@
 from typing import Any, Protocol
 
 from rdflib import RDF, Graph, URIRef
+from rdflib.namespace import NamespaceManager
 
 
 def get_node_types(graph: Graph, node_id: URIRef) -> set[URIRef]:
@@ -37,6 +38,7 @@ class ModelBase:
     id: URIRef
     types: set[URIRef]
     _attributes: dict[URIRef, Any]
+    _ns_manager: NamespaceManager | None
 
     def __init__(
         self, node_id: URIRef, graph: Graph | None = None, types: set[URIRef] | None = None
@@ -52,6 +54,9 @@ class ModelBase:
         assert len(self.types) > 0, f"node '{self.id}' has no type"
 
         self._attributes = {}
+        self._ns_manager = None
+        if graph is not None:
+            self._ns_manager = graph.namespace_manager
 
     def has_attr(self, key: URIRef) -> bool:
         """Check if the model has an attribute."""
@@ -67,6 +72,9 @@ class ModelBase:
             return None
 
         return self._attributes[key]
+
+    def __str__(self) -> str:
+        return f"<({self.__class__.__name__}) {self.id.n3(self._ns_manager)}>"
 
 
 class AttrLoaderProtocol(Protocol):

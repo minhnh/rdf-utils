@@ -7,6 +7,8 @@ Coordinate models and values using concepts from
 
 from __future__ import annotations
 
+from collections.abc import Generator
+
 import numpy as np
 from rdflib import BNode, Graph, Literal, URIRef
 from scipy.spatial.transform import RigidTransform, Rotation
@@ -113,19 +115,27 @@ class PoseCoordModel(IFrameRelationCoord):
     Parameters:
         coord_id: URI of the PoseCoordinate in the graph
         graph: RDF graph for loading attributes
+        pose: optional preloaded Pose relation; must match the coordinate's ``of-pose`` URI
     """
 
     position_coord: PositionCoordModel
     orientation_coord: OrientCoordModel
 
-    def __init__(self, coord_id: URIRef, graph: Graph) -> None:
+    def __init__(self, coord_id: URIRef, graph: Graph, pose: PoseModel | None = None) -> None:
         pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
         if not isinstance(pose_id, URIRef):
             raise ConstraintViolation(
                 "geometry",
                 f"PoseCoordinate '{coord_id}' does not link to a URI via 'of-pose': {pose_id}",
             )
-        pose = PoseModel(pose_id=pose_id, graph=graph)
+        if pose is None:
+            pose = PoseModel(pose_id=pose_id, graph=graph)
+        elif pose_id != pose.id:
+            raise ConstraintViolation(
+                "geometry",
+                f"PoseCoordinate '{coord_id}' receives pose arg ({pose}) with mismatching "
+                f"'of-pose' URI: {pose_id} != {pose.id}",
+            )
 
         super().__init__(coord_id=coord_id, relation=pose, graph=graph)
 
@@ -181,9 +191,9 @@ class PoseCoordModel(IFrameRelationCoord):
                 )
             orientation_coord_id = next(iter(pose.orientation.coordinate_ids))
 
-        self.position_coord = PositionCoordModel(position_coord_id, graph, relation=pose.position)
+        self.position_coord = PositionCoordModel(position_coord_id, graph, position=pose.position)
         self.orientation_coord = OrientCoordModel(
-            orientation_coord_id, graph, relation=pose.orientation
+            coord_id=orientation_coord_id, graph=graph, orientation=pose.orientation
         )
 
 
@@ -193,11 +203,12 @@ class OrientCoordModel(IFrameRelationCoord):
     Parameters:
         coord_id: URI of the OrientationCoordinate in the graph
         graph: RDF graph for loading attributes
-        relation: optional preloaded Orientation relation
+        orientation: optional preloaded Orientation relation; must match the coordinate's
+                     ``of-orientation`` URI
     """
 
     def __init__(
-        self, coord_id: URIRef, graph: Graph, relation: OrientationModel | None = None
+        self, coord_id: URIRef, graph: Graph, orientation: OrientationModel | None = None
     ) -> None:
         orient_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_ORIENT)
         if not isinstance(orient_id, URIRef):
@@ -205,13 +216,14 @@ class OrientCoordModel(IFrameRelationCoord):
                 "geometry",
                 f"OrientationCoordinate '{coord_id}' does not link to a URI via 'of-orientation': {orient_id}",
             )
-        if relation is not None and relation.id != orient_id:
+        if orientation is None:
+            orientation = OrientationModel(orn_id=orient_id, graph=graph)
+        elif orientation.id != orient_id:
             raise ConstraintViolation(
                 "geometry",
-                f"OrientationCoordinate '{coord_id}' references Orientation '{orient_id}', "
-                f"not '{relation.id}'",
+                f"OrientationCoordinate '{coord_id}' receives orientation arg ({orientation}) with mismatching "
+                f"'of-orientation' URI: {orient_id} != {orientation.id}",
             )
-        orientation = relation or OrientationModel(orn_id=orient_id, graph=graph)
 
         super().__init__(coord_id=coord_id, relation=orientation, graph=graph)
 
@@ -232,7 +244,8 @@ class PositionCoordModel(ModelBase):
     Parameters:
         coord_id: URI of the PositionCoordinate in the graph
         graph: RDF graph for loading attributes
-        relation: optional preloaded Position relation
+        position: optional preloaded Position relation; must match the coordinate's
+                  ``of-position`` URI
     """
 
     position: PositionModel
@@ -240,7 +253,7 @@ class PositionCoordModel(ModelBase):
     unit: URIRef
 
     def __init__(
-        self, coord_id: URIRef, graph: Graph, relation: PositionModel | None = None
+        self, coord_id: URIRef, graph: Graph, position: PositionModel | None = None
     ) -> None:
         super().__init__(node_id=coord_id, graph=graph)
 
@@ -265,13 +278,16 @@ class PositionCoordModel(ModelBase):
                 f"PositionCoordinate '{self.id}' does not link to a URI via 'of-position': {position_id}",
             )
 
-        if relation is not None and relation.id != position_id:
+        if position is None:
+            position = PositionModel(position_id=position_id, graph=graph)
+        elif position.id != position_id:
             raise ConstraintViolation(
                 "geometry",
                 f"PositionCoordinate '{self.id}' references Position '{position_id}', "
-                f"not '{relation.id}'",
+                f"PositionCoordinate '{coord_id}' receives position arg ({position}) with mismatching "
+                f"'of-position' URI: {position_id} != {position.id}",
             )
-        self.position = relation or PositionModel(position_id=position_id, graph=graph)
+        self.position = position
 
         units = LENGTH_UNITS.intersection(graph.objects(self.id, URI_QUDT_PRED_UNIT))
         if len(units) != 1:
@@ -281,6 +297,25 @@ class PositionCoordModel(ModelBase):
             )
         unit = next(iter(units))
         self.unit = unit
+
+
+def get_position_coords(
+    graph: Graph, position_rels: list[PositionModel]
+) -> Generator[tuple[PositionModel, list[PositionCoordModel]], None, None]:
+    """Yield each Position relation with all its PositionCoordinate models.
+
+    Parameters:
+        graph: RDF graph containing the coordinates
+        position_rels: Position relations whose coordinates to load
+
+    Yields:
+        each Position relation paired with its loaded coordinates
+    """
+    for position in position_rels:
+        coords = []
+        for coord_id in position.coordinate_ids:
+            coords.append(PositionCoordModel(coord_id=coord_id, graph=graph, position=position))
+        yield position, coords
 
 
 def get_translation_between_points(
@@ -316,17 +351,14 @@ def get_translation_between_points(
 
     translation = [0.0, 0.0, 0.0]
     unit = None
-    for position in path:
-        if len(position.coordinate_ids) != 1:
+    for position, coords in get_position_coords(graph=graph, position_rels=path):
+        if len(coords) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Position {position.id} must have one coordinate, "
-                f"found {len(position.coordinate_ids)}",
+                f"Position {position.id} must have one coordinate, found: {coords}",
             )
 
-        coordinate = PositionCoordModel(
-            next(iter(position.coordinate_ids)), graph, relation=position
-        )
+        coordinate = coords[0]
         if unit is None:
             unit = coordinate.unit
         elif coordinate.unit != unit:
@@ -347,6 +379,27 @@ def get_translation_between_points(
         translation = [total + value for total, value in zip(translation, values)]
 
     return (translation[0], translation[1], translation[2])
+
+
+def get_orientation_coords(
+    graph: Graph, orientations: list[OrientationModel]
+) -> Generator[tuple[OrientationModel, list[OrientCoordModel]], None, None]:
+    """Yield each Orientation relation with all its OrientationCoordinate models.
+
+    Parameters:
+        graph: RDF graph containing the coordinates
+        orientations: Orientation relations whose coordinates to load
+
+    Yields:
+        each Orientation relation paired with its loaded coordinates
+    """
+    for orientation in orientations:
+        orient_coords = []
+        for coord_id in orientation.coordinate_ids:
+            orient_coords.append(
+                OrientCoordModel(coord_id=coord_id, graph=graph, orientation=orientation)
+            )
+        yield orientation, orient_coords
 
 
 def get_rotation_between_frames(
@@ -378,19 +431,16 @@ def get_rotation_between_frames(
         return None
 
     result = Rotation.identity()
-    for orientation in path:
-        if len(orientation.coordinate_ids) != 1:
+    for orientation, orient_coords in get_orientation_coords(graph=graph, orientations=path):
+        if len(orient_coords) != 1:
             raise ConstraintViolation(
                 "geometry",
-                f"Orientation {orientation.id} must have one coordinate, "
-                f"found {len(orientation.coordinate_ids)}",
+                f"Orientation {orientation.id} must have one coordinate, found {orient_coords}",
             )
 
-        coordinate = OrientCoordModel(
-            next(iter(orientation.coordinate_ids)), graph, relation=orientation
-        )
+        coordinate = orient_coords[0]
         if rng is None:
-            rotation = get_orientation_coord(coordinate, graph)
+            rotation = get_orientation_coord_vals(coordinate, graph)
             if rotation is None:
                 raise ConstraintViolation(
                     "geometry", f"Coordinate {coordinate.id} has no orientation values"
@@ -407,46 +457,23 @@ def get_rotation_between_frames(
     return result
 
 
-def get_pose_coord(
-    coord_model: PoseCoordModel,
-    graph: Graph,
-    rng: np.random.Generator | None = None,
-    materialize_sample: bool = False,
-) -> RigidTransform:
-    """Get the rigid transform represented by a PoseCoordinate.
+def get_pose_coords(
+    graph: Graph, poses: list[PoseModel]
+) -> Generator[tuple[PoseModel, list[PoseCoordModel]], None, None]:
+    """Yield each Pose relation with all its PoseCoordinate models.
 
     Parameters:
-        coord_model: PoseCoordinate model containing position and orientation coordinates
-        graph: RDF graph containing the coordinate values
-        rng: optional random generator that enables sampled coordinates
-        materialize_sample: whether to write newly sampled values to the graph
+        graph: RDF graph containing the coordinates
+        poses: Pose relations whose coordinates to load
 
-    Returns:
-        rigid transform containing the Pose translation and rotation
+    Yields:
+        each Pose relation paired with its loaded coordinates
     """
-    if rng is None:
-        translation = get_coord_vectorxyz(coord_model.position_coord, graph)
-        rotation = get_orientation_coord(coord_model.orientation_coord, graph)
-        if rotation is None:
-            raise ConstraintViolation(
-                "geometry",
-                f"Coordinate {coord_model.orientation_coord.id} has no orientation values",
-            )
-    else:
-        translation = get_or_sample_coord_vectorxyz(
-            coord_model.position_coord,
-            graph,
-            rng=rng,
-            materialize_sample=materialize_sample,
-        )
-        rotation = get_or_sample_orientation_coord(
-            coord_model.orientation_coord,
-            graph,
-            rng=rng,
-            materialize_sample=materialize_sample,
-        )
-
-    return RigidTransform.from_components(translation, rotation)
+    for pose in poses:
+        pose_coords = []
+        for coord_id in pose.coordinate_ids:
+            pose_coords.append(PoseCoordModel(coord_id=coord_id, graph=graph, pose=pose))
+        yield pose, pose_coords
 
 
 def get_transform_between_frames(
@@ -480,13 +507,14 @@ def get_transform_between_frames(
 
     result = RigidTransform.identity()
     unit = None
-    for pose in path:
-        if len(pose.coordinate_ids) != 1:
+    for pose, pose_coords in get_pose_coords(graph=graph, poses=path):
+        if len(pose_coords) != 1:
             raise ConstraintViolation(
                 "geometry",
                 f"Pose {pose.id} must have one coordinate, found {len(pose.coordinate_ids)}",
             )
-        pose_coord = PoseCoordModel(next(iter(pose.coordinate_ids)), graph)
+
+        pose_coord = pose_coords[0]
         if unit is None:
             unit = pose_coord.position_coord.unit
         elif pose_coord.position_coord.unit != unit:
@@ -494,7 +522,7 @@ def get_transform_between_frames(
                 "geometry", "PositionCoordinates in a path must share one unit"
             )
         result = (
-            get_pose_coord(
+            get_pose_coord_vals(
                 pose_coord,
                 graph,
                 rng=rng,
@@ -504,6 +532,48 @@ def get_transform_between_frames(
         )
 
     return result
+
+
+def get_pose_coord_vals(
+    coord_model: PoseCoordModel,
+    graph: Graph,
+    rng: np.random.Generator | None = None,
+    materialize_sample: bool = False,
+) -> RigidTransform:
+    """Get the rigid transform represented by a PoseCoordinate.
+
+    Parameters:
+        coord_model: PoseCoordinate model containing position and orientation coordinates
+        graph: RDF graph containing the coordinate values
+        rng: optional random generator that enables sampled coordinates
+        materialize_sample: whether to write newly sampled values to the graph
+
+    Returns:
+        rigid transform containing the Pose translation and rotation
+    """
+    if rng is None:
+        translation = get_coord_vectorxyz(coord_model.position_coord, graph)
+        rotation = get_orientation_coord_vals(coord_model.orientation_coord, graph)
+        if rotation is None:
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.orientation_coord.id} has no orientation values",
+            )
+    else:
+        translation = get_or_sample_coord_vectorxyz(
+            coord_model.position_coord,
+            graph,
+            rng=rng,
+            materialize_sample=materialize_sample,
+        )
+        rotation = get_or_sample_orientation_coord(
+            coord_model.orientation_coord,
+            graph,
+            rng=rng,
+            materialize_sample=materialize_sample,
+        )
+
+    return RigidTransform.from_components(translation, rotation)
 
 
 def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
@@ -828,7 +898,7 @@ def _orientation_representation(coord_model: IFrameRelationCoord) -> URIRef | No
     return representations.pop() if representations else None
 
 
-def get_orientation_coord(coord_model: IFrameRelationCoord, graph: Graph) -> Rotation | None:
+def get_orientation_coord_vals(coord_model: IFrameRelationCoord, graph: Graph) -> Rotation | None:
     """Parse orientation coordinate in a graph into a SciPy Rotation.
 
     Handles and convert different orientation coordinate types into a
@@ -966,7 +1036,7 @@ def get_or_sample_orientation_coord(
     Returns:
         explicit or sampled orientation as a SciPy Rotation
     """
-    rotation = get_orientation_coord(coord_model, graph)
+    rotation = get_orientation_coord_vals(coord_model, graph)
     if rotation is not None:
         return rotation
 
