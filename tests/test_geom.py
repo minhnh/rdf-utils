@@ -707,12 +707,17 @@ class GeometryTest(unittest.TestCase):
         for predicate in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z):
             graph.remove((first_coordinate, predicate, None))
         graph.add((first_coordinate, RDF.type, URI_DISTRIB_TYPE_SAMPLED_QUANTITY))
-        with self.assertRaises(ValueError):
+        sampled_coordinate = PositionCoordModel(first_coordinate, graph)
+        assert get_coord_vectorxyz(sampled_coordinate, graph) is None
+        with self.assertRaises(ConstraintViolation):
             get_translation_between_points(first, last, graph)
 
         sample = np.array((0.5, 1.5, 2.5))
         rng = np.random.default_rng(42)
-        sampled_coordinate = PositionCoordModel(first_coordinate, graph)
+        graph.add((first_coordinate, URI_GEOM_PRED_X, Literal(1.0)))
+        with self.assertRaises(ConstraintViolation):
+            get_or_sample_coord_vectorxyz(sampled_coordinate, graph, rng=rng)
+        graph.remove((first_coordinate, URI_GEOM_PRED_X, None))
         with (
             patch("rdf_utils.models.geom_coord.distrib_from_sampled_quantity") as get_distrib,
             patch("rdf_utils.models.geom_coord.sample_from_distrib", return_value=sample),

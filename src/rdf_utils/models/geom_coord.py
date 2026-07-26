@@ -327,10 +327,9 @@ def get_translation_between_points(
     """Get the XYZ translation between two points.
 
     Each Position along the path must have one VectorXYZ PositionCoordinate,
-    and all coordinates must share one QUDT unit. Without ``rng``, only
-    explicit XYZ values are read and their lookup errors are propagated. With
-    ``rng``, missing XYZ values may be sampled from a SampledQuantity
-    distribution.
+    and all coordinates must share one QUDT unit. Without ``rng``, every
+    coordinate must have explicit XYZ values. With ``rng``, missing XYZ values
+    may be sampled from a SampledQuantity distribution.
 
     Parameters:
         of_point: point at the start of the path
@@ -367,6 +366,10 @@ def get_translation_between_points(
             )
         if rng is None:
             values = get_coord_vectorxyz(coordinate, graph)
+            if values is None:
+                raise ConstraintViolation(
+                    "geometry", f"Coordinate {coordinate.id} has no XYZ values"
+                )
         else:
             values = get_or_sample_coord_vectorxyz(
                 coordinate,
@@ -541,6 +544,10 @@ def get_pose_coord_vals(
 ) -> RigidTransform:
     """Get the rigid transform represented by a PoseCoordinate.
 
+    Without ``rng``, the coordinate must have explicit position and orientation
+    values. With ``rng``, missing values may be sampled from SampledQuantity
+    distributions.
+
     Parameters:
         coord_model: PoseCoordinate model containing position and orientation coordinates
         graph: RDF graph containing the coordinate values
@@ -552,6 +559,10 @@ def get_pose_coord_vals(
     """
     if rng is None:
         translation = get_coord_vectorxyz(coord_model.position_coord, graph)
+        if translation is None:
+            raise ConstraintViolation(
+                "geometry", f"Coordinate {coord_model.position_coord.id} has no XYZ values"
+            )
         rotation = get_orientation_coord_vals(coord_model.orientation_coord, graph)
         if rotation is None:
             raise ConstraintViolation(
@@ -575,7 +586,7 @@ def get_pose_coord_vals(
     return RigidTransform.from_components(translation, rotation)
 
 
-def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float]:
+def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, float, float] | None:
     """Extract coordinates for a VectorXYZ model.
 
     Parameters:
@@ -583,36 +594,38 @@ def get_coord_vectorxyz(coord_model: ModelBase, graph: Graph) -> tuple[float, fl
         graph: RDF graph to look for coordinate attributes
 
     Returns:
-        tuple containing (x, y, z) coordinates
+        tuple containing (x, y, z) coordinates, or None when no values are present
     """
     if URI_GEOM_TYPE_VECTOR_XYZ not in coord_model.types:
         raise ValueError(f"Coordinate '{coord_model.id}' is not of type 'VectorXYZ'")
 
-    x_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_X)
-    if x_node is None:
-        raise ValueError(f"Coordinate '{coord_model.id}' has no 'x' property")
-    if not isinstance(x_node, Literal) or not isinstance(x_node.value, float):
-        raise TypeError(
-            f"Coordinate '{coord_model.id}' does not have a 'x' property of type float: {x_node}"
-        )
+    values: list[float] = []
+    for predicate in (URI_GEOM_PRED_X, URI_GEOM_PRED_Y, URI_GEOM_PRED_Z):
+        nodes = list(graph.objects(coord_model.id, predicate))
+        if not nodes:
+            continue
+        if len(nodes) != 1 or not isinstance(nodes[0], Literal):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have zero or one float literal for "
+                f"{predicate}, found: {nodes}",
+            )
+        value = nodes[0].toPython()
+        if not isinstance(value, float) or not np.isfinite(value):
+            raise ConstraintViolation(
+                "geometry",
+                f"Coordinate {coord_model.id} must have one finite float for {predicate}, "
+                f"found: {value}",
+            )
+        values.append(value)
 
-    y_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_Y)
-    if y_node is None:
-        raise ValueError(f"Coordinate '{coord_model.id}' has no 'y' property")
-    if not isinstance(y_node, Literal) or not isinstance(y_node.value, float):
-        raise TypeError(
-            f"Coordinate '{coord_model.id}' does not have a 'y' property of type float: {y_node}"
+    if not values:
+        return None
+    if len(values) != 3:
+        raise ConstraintViolation(
+            "geometry", f"Coordinate {coord_model.id} does not have 3 XYZ values: {values}"
         )
-
-    z_node = graph.value(subject=coord_model.id, predicate=URI_GEOM_PRED_Z)
-    if z_node is None:
-        raise ValueError(f"Coordinate '{coord_model.id}' has no 'z' property")
-    if not isinstance(z_node, Literal) or not isinstance(z_node.value, float):
-        raise TypeError(
-            f"Coordinate '{coord_model.id}' does not have a 'z' property of type float: {z_node}"
-        )
-
-    return (x_node.value, y_node.value, z_node.value)
+    return (values[0], values[1], values[2])
 
 
 def set_coord_vectorxyz(
@@ -653,14 +666,12 @@ def get_or_sample_coord_vectorxyz(
     Returns:
         tuple containing (x, y, z) coordinates
     """
-    try:
-        return get_coord_vectorxyz(coord_model, graph)
-    except ValueError:
-        if (
-            URI_GEOM_TYPE_VECTOR_XYZ not in coord_model.types
-            or URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types
-        ):
-            raise
+    values = get_coord_vectorxyz(coord_model, graph)
+    if values is not None:
+        return values
+
+    if URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types:
+        raise ConstraintViolation("geometry", f"Coordinate {coord_model.id} has no XYZ values")
 
     if rng is None:
         raise ConstraintViolation(
