@@ -1,10 +1,12 @@
 # SPDX-Litense-Identifier:  MPL-2.0
 from rdf_utils.namespace import (
     NS_MM_ACT,
+    NS_MM_AGN,
     NS_MM_DISTRIB,
     NS_MM_DYN_COORD,
     NS_MM_DYN_ENT,
     NS_MM_EL,
+    NS_MM_ENV,
     NS_MM_EXEC,
     NS_MM_GEOM,
     NS_MM_GEOM_COORD,
@@ -181,6 +183,28 @@ URI_DISTRIB_TYPE_UNIFORM_ROT = NS_MM_DISTRIB["UniformRotation"]
 
 URI_DISTRIB_TYPE_SAMPLED_QUANTITY = NS_MM_DISTRIB["SampledQuantity"]
 URI_DISTRIB_PRED_FROM_DISTRIB = NS_MM_DISTRIB["from-distribution"]
+
+# Environment
+URI_ENV_TYPE_OBJ = NS_MM_ENV["Object"]
+URI_ENV_TYPE_WS = NS_MM_ENV["Workspace"]
+URI_ENV_TYPE_WS_WS = NS_MM_ENV["WorkspaceHasWorkspace"]
+URI_ENV_TYPE_WS_OBJ = NS_MM_ENV["WorkspaceHasObject"]
+URI_ENV_TYPE_RIGID_OBJ = NS_MM_ENV["RigidObject"]
+URI_ENV_TYPE_MOD_OBJ = NS_MM_ENV["ModelledObject"]
+URI_ENV_TYPE_OBJ_MODEL = NS_MM_ENV["ObjectModel"]
+URI_ENV_PRED_HAS_OBJ_MODEL = NS_MM_ENV["has-object-model"]
+URI_ENV_PRED_HAS_OBJ = NS_MM_ENV["has-object"]
+URI_ENV_PRED_OF_OBJ = NS_MM_ENV["of-object"]
+URI_ENV_PRED_HAS_WS = NS_MM_ENV["has-workspace"]
+URI_ENV_PRED_OF_WS = NS_MM_ENV["of-workspace"]
+
+# Agent
+URI_AGN_TYPE_AGN = NS_MM_AGN["Agent"]
+URI_AGN_TYPE_MOD_AGN = NS_MM_AGN["ModelledAgent"]
+URI_AGN_TYPE_AGN_MODEL = NS_MM_AGN["AgentModel"]
+URI_AGN_PRED_OF_AGN = NS_MM_AGN["of-agent"]
+URI_AGN_PRED_HAS_AGN = NS_MM_AGN["has-agent"]
+URI_AGN_PRED_HAS_AGN_MODEL = NS_MM_AGN["has-agent-model"]
 
 # Execution Context
 URI_EXEC_TYPE_SYS_RES = NS_MM_EXEC["SystemResource"]

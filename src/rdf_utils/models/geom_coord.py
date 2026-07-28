@@ -743,12 +743,9 @@ def get_euler_angles_abg(
         graph: RDF graph to look for coordinate attributes
 
     Returns:
-        tuple containing:
-        - axes sequence of the Euler angles
-        - whether the rotation is intrinsic
-        - unit of the angle values (degrees or radians)
-        - angle values
-        or None when no values are present
+        A tuple containing the Euler axes sequence, whether the rotation is
+        intrinsic, the angle unit, and the three angle values; or None when
+        no angle values are present.
     """
     if URI_GEOM_TYPE_ANGLES_ABG not in coord_model.types:
         raise ValueError(f"Coordinate '{coord_model.id}' is not an AnglesAlphaBetaGamma")
