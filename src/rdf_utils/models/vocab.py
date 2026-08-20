@@ -14,11 +14,45 @@ from rdf_utils.namespace import (
     NS_MM_KC,
     NS_MM_KC_EXT,
     NS_MM_KC_STAT,
+    NS_MM_OBS,
     NS_MM_QUDT,
     NS_MM_QUDT_QTY,
     NS_MM_QUDT_UNIT,
+    NS_MM_TC,
     NS_OWL_TIME,
 )
+
+# Time constraints
+URI_TIME_TYPE_TC = NS_MM_TC["TimeConstraint"]
+URI_TIME_TYPE_BEFORE_EVT = NS_MM_TC["BeforeEventConstraint"]
+URI_TIME_TYPE_AFTER_EVT = NS_MM_TC["AfterEventConstraint"]
+URI_TIME_TYPE_DURING = NS_MM_TC["DuringEventsConstraint"]
+URI_TIME_PRED_BEFORE_EVT = NS_MM_TC["before-event"]
+URI_TIME_PRED_AFTER_EVT = NS_MM_TC["after-event"]
+URI_TIME_PRED_HRZN_SEC = NS_MM_TC["horizon-seconds"]
+
+# Observation
+URI_OBS_TYPE_POLICY = NS_MM_OBS["ObservationPolicy"]
+URI_OBS_TYPE_PROVIDER = NS_MM_OBS["ObservationProvider"]
+URI_OBS_TYPE_OBSERVATION = NS_MM_OBS["Observation"]
+URI_OBS_TYPE_POSE_PROVIDER = NS_MM_OBS["PoseProvider"]
+URI_OBS_TYPE_VELOCITY_TWIST_PROVIDER = NS_MM_OBS["VelocityTwistProvider"]
+URI_OBS_TYPE_ACCELERATION_TWIST_PROVIDER = NS_MM_OBS["AccelerationTwistProvider"]
+URI_OBS_TYPE_WRENCH_PROVIDER = NS_MM_OBS["WrenchProvider"]
+URI_OBS_TYPE_JOINT_POSITION_PROVIDER = NS_MM_OBS["JointPositionProvider"]
+URI_OBS_TYPE_JOINT_VELOCITY_PROVIDER = NS_MM_OBS["JointVelocityProvider"]
+URI_OBS_TYPE_JOINT_ACCELERATION_PROVIDER = NS_MM_OBS["JointAccelerationProvider"]
+URI_OBS_TYPE_JOINT_FORCE_PROVIDER = NS_MM_OBS["JointForceProvider"]
+URI_OBS_PRED_POLICY = NS_MM_OBS["has-policy"]
+URI_OBS_PRED_PROVIDER = NS_MM_OBS["has-provider"]
+URI_OBS_PRED_HAS_OBSERVATION = NS_MM_OBS["has-observation"]
+URI_OBS_PRED_OBSERVES_TARGET = NS_MM_OBS["observes-target"]
+URI_OBS_PRED_TIME_EXTRACTOR = NS_MM_OBS["time-extractor"]
+URI_OBS_PRED_ENTITY_MAPPER = NS_MM_OBS["entity-mapper"]
+URI_OBS_PRED_HAS_EVALUATOR = NS_MM_OBS["has-evaluator"]
+URI_OBS_TYPE_DIRECT_TRINARY_POLICY = NS_MM_OBS["DirectTrinaryPolicy"]
+URI_OBS_TYPE_EVALUATED_POLICY = NS_MM_OBS["EvaluatedObservationPolicy"]
+URI_OBS_TYPE_LINEAR_DISTANCE_EVALUATOR = NS_MM_OBS["LinearDistanceEvaluator"]
 
 # Event loop
 URI_EL_TYPE_EVT_LOOP = NS_MM_EL["EventLoop"]
