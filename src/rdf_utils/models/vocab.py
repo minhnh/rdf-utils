@@ -18,11 +18,13 @@ from rdf_utils.namespace import (
     NS_MM_QUDT,
     NS_MM_QUDT_QTY,
     NS_MM_QUDT_UNIT,
+    NS_MM_ROS,
     NS_MM_TC,
     NS_OWL_TIME,
 )
 
 # Time constraints
+URI_TIME_TYPE_INSTANT = NS_OWL_TIME["Instant"]
 URI_TIME_TYPE_TC = NS_MM_TC["TimeConstraint"]
 URI_TIME_TYPE_BEFORE_EVT = NS_MM_TC["BeforeEventConstraint"]
 URI_TIME_TYPE_AFTER_EVT = NS_MM_TC["AfterEventConstraint"]
@@ -56,7 +58,6 @@ URI_OBS_TYPE_LINEAR_DISTANCE_EVALUATOR = NS_MM_OBS["LinearDistanceEvaluator"]
 
 # Event loop
 URI_EL_TYPE_EVT_LOOP = NS_MM_EL["EventLoop"]
-URI_EL_TYPE_EVT = NS_OWL_TIME["Instant"]
 URI_EL_TYPE_FLG = NS_MM_EL["Flag"]
 URI_EL_TYPE_EVT_REACT = NS_MM_EL["EventReaction"]
 URI_EL_TYPE_FLG_REACT = NS_MM_EL["FlagReaction"]
@@ -78,6 +79,7 @@ URI_QUDT_QK_ANG_VEL = NS_MM_QUDT_QTY["AngularVelocity"]
 URI_QUDT_QK_ANG_ACCEL = NS_MM_QUDT_QTY["AngularAcceleration"]
 URI_QUDT_QK_LIN_ACCEL = NS_MM_QUDT_QTY["LinearAcceleration"]
 URI_QUDT_QK_FREQ = NS_MM_QUDT_QTY["Frequency"]
+URI_QUDT_QK_DISTANCE = NS_MM_QUDT_QTY["Distance"]
 
 URI_QUDT_UNIT_RAD = NS_MM_QUDT_UNIT["RAD"]
 URI_QUDT_UNIT_DEG = NS_MM_QUDT_UNIT["DEG"]
@@ -98,6 +100,14 @@ URI_QUDT_TYPE_QUANTITY = NS_MM_QUDT["Quantity"]
 URI_QUDT_PRED_QUANTITY_KIND = NS_MM_QUDT["hasQuantityKind"]
 URI_QUDT_PRED_UNIT = NS_MM_QUDT["unit"]
 URI_QUDT_PRED_VALUE = NS_MM_QUDT["value"]
+
+# ROS
+URI_ROS_TYPE_TOPIC = NS_MM_ROS["Topic"]
+URI_ROS_TYPE_SERVICE = NS_MM_ROS["Service"]
+URI_ROS_TYPE_ACTION = NS_MM_ROS["Action"]
+URI_ROS_TYPE_SIM_ENTITY_STATE_PROVIDER = NS_MM_ROS["SimulationEntityStateProvider"]
+URI_ROS_PRED_CHNL_NAME = NS_MM_ROS["channel-name"]
+URI_ROS_PRED_TYPE_NAME = NS_MM_ROS["type-name"]
 
 # Geometry
 URI_GEOM_TYPE_POINT = NS_MM_GEOM["Point"]

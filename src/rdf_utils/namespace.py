@@ -30,6 +30,7 @@ URL_MM_GEOM_SHACL_REL = f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations
 NS_MM_QUDT = Namespace("http://qudt.org/schema/qudt/")
 NS_MM_QUDT_QTY = Namespace("http://qudt.org/vocab/quantitykind/")
 NS_MM_QUDT_UNIT = Namespace("http://qudt.org/vocab/unit/")
+NS_MM_ROS = Namespace("https://index.ros.org/p/")
 
 NS_MM_GEOM = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entities#")
 NS_MM_GEOM_REL = Namespace(f"{URL_COMP_ROB2B}/metamodels/geometry/spatial-relations#")
