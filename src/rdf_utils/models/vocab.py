@@ -32,6 +32,7 @@ URI_TIME_TYPE_DURING = NS_MM_TC["DuringEventsConstraint"]
 URI_TIME_PRED_BEFORE_EVT = NS_MM_TC["before-event"]
 URI_TIME_PRED_AFTER_EVT = NS_MM_TC["after-event"]
 URI_TIME_PRED_HRZN_SEC = NS_MM_TC["horizon-seconds"]
+URI_TIME_PRED_OF_CONSTRAINT = NS_MM_TC["of-constraint"]
 
 # Observation
 URI_OBS_TYPE_POLICY = NS_MM_OBS["ObservationPolicy"]
