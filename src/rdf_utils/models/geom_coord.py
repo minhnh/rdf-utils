@@ -183,10 +183,11 @@ class PoseCoordModel(IFrameRelationCoord):
                     "geometry",
                     f"PoseCoordinate {self.id} is a PositionCoordinate but does not link to a Position",
                 )
-            if pose.position.coordinate_ids != {self.id}:
+            if self.id not in pose.position.coordinate_ids:
                 raise ConstraintViolation(
                     "geometry",
-                    f"PoseCoordinate {self.id} has ambiguous position coords {pose.position.coordinate_ids}",
+                    f"PoseCoordinate {self.id} is a PositionCoordinate but does not reference "
+                    f"Position {pose.position.id}: {pose.position.coordinate_ids}",
                 )
             position_coord_id = self.id
         else:
@@ -204,10 +205,11 @@ class PoseCoordModel(IFrameRelationCoord):
                     "geometry",
                     f"PoseCoordinate {self.id} is an OrientationCoordinate but does not link to an Orientation",
                 )
-            if pose.orientation.coordinate_ids != {self.id}:
+            if self.id not in pose.orientation.coordinate_ids:
                 raise ConstraintViolation(
                     "geometry",
-                    f"PoseCoordinate {self.id} has ambiguous orientation coords {pose.orientation.coordinate_ids}",
+                    f"PoseCoordinate {self.id} is an OrientationCoordinate but does not reference "
+                    f"Orientation {pose.orientation.id}: {pose.orientation.coordinate_ids}",
                 )
             orientation_coord_id = self.id
         else:
