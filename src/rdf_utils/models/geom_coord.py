@@ -191,7 +191,7 @@ def select_coordinate(
     Returns:
         the chosen coordinate's URI, or None when the caller must decide what to do
     """
-    candidates = sorted(relation.coordinate_ids, key=str)
+    candidates = list(relation.coordinate_ids)
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
@@ -225,12 +225,12 @@ def _narrowed_coord_ids(
     graph: Graph,
     coord_policy: CoordPolicyProtocol | None,
 ) -> list[URIRef]:
-    """The relation's coordinate to use as a one-element list, or all of them, sorted, when
-    neither a ``coord_policy`` nor a graph-declared evaluator picks one."""
+    """The relation's coordinate to use as a one-element list, or all of them when neither a
+    ``coord_policy`` nor a graph-declared evaluator picks one."""
     chosen = select_coordinate(relation, graph, coord_policy)
     if chosen is not None:
         return [chosen]
-    return sorted(relation.coordinate_ids, key=str)
+    return list(relation.coordinate_ids)
 
 
 def record_coord_selection(
