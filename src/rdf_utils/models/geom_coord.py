@@ -143,19 +143,8 @@ class CoordPolicyProtocol(Protocol):
     def __call__(self, candidates: list[URIRef], **kwargs: Any) -> URIRef: ...
 
 
-def resolve_coord_evaluator(graph: Graph, evaluator_id: URIRef) -> CoordPolicyProtocol:
-    """Resolve a graph-declared coordinate-selection evaluator, reached via ``obs:has-evaluator``.
-
-    Only a ``py:ModuleAttribute`` is supported: the referenced class or instance must satisfy
-    ``CoordPolicyProtocol``. There is no built-in evaluator type, unlike bdd-dsl's
-    ``LinearDistanceEvaluator`` -- coordinate selection has no domain-specific algorithm to name.
-
-    Parameters:
-        graph: RDF graph containing the evaluator node
-        evaluator_id: URI of the evaluator node
-
-    Returns:
-        the resolved, callable evaluator
+def _resolve_coord_evaluator(graph: Graph, evaluator_id: URIRef) -> CoordPolicyProtocol:
+    """Resolve a graph-declared ``py:ModuleAttribute`` evaluator into a ``CoordPolicyProtocol``.
 
     Raises:
         TypeError: the evaluator's type is unsupported, or it does not resolve to a callable
@@ -202,31 +191,46 @@ def select_coordinate(
     Returns:
         the chosen coordinate's URI, or None when the caller must decide what to do
     """
+    candidates = sorted(relation.coordinate_ids, key=str)
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        return None
+
     policy = coord_policy
     if policy is None:
-        found = graph.value(subject=relation.id, predicate=URI_OBS_PRED_HAS_EVALUATOR)
+        found = graph.value(subject=relation.id, predicate=URI_OBS_PRED_HAS_EVALUATOR, any=False)
         if found is not None:
             if not isinstance(found, URIRef):
                 raise ConstraintViolation(
                     "geometry",
                     f"{relation.id} links to a non-URI evaluator via 'has-evaluator': {found}",
                 )
-            policy = resolve_coord_evaluator(graph, found)
-
-    candidates = sorted(relation.coordinate_ids, key=str)
-    if len(candidates) == 1:
-        return candidates[0]
-    if not candidates or policy is None:
+            policy = _resolve_coord_evaluator(graph, found)
+    if policy is None:
         return None
 
     chosen = policy(candidates, graph=graph, relation=relation.id, **kwargs)
-    if chosen not in set(candidates):
+    if chosen not in candidates:
         raise ConstraintViolation(
             "geometry",
             f"coord_policy returned '{chosen}', which is not a coordinate of relation "
             f"'{relation.id}': {candidates}",
         )
     return chosen
+
+
+def _narrowed_coord_ids(
+    relation: PositionModel | OrientationModel | PoseModel,
+    graph: Graph,
+    coord_policy: CoordPolicyProtocol | None,
+) -> list[URIRef]:
+    """The relation's coordinate to use as a one-element list, or all of them, sorted, when
+    neither a ``coord_policy`` nor a graph-declared evaluator picks one."""
+    chosen = select_coordinate(relation, graph, coord_policy)
+    if chosen is not None:
+        return [chosen]
+    return sorted(relation.coordinate_ids, key=str)
 
 
 def record_coord_selection(
@@ -510,8 +514,8 @@ def get_position_coords(
 ) -> Generator[tuple[PositionModel, list[PositionCoordModel]], None, None]:
     """Yield each Position relation with its PositionCoordinate models.
 
-    A Position sampled by several coordinates yields all of them, unless a ``coord_policy``
-    narrows it to the one the policy picks.
+    A Position sampled by several coordinates yields all of them, unless a ``coord_policy`` or a
+    graph-declared evaluator on the Position narrows it to the one it picks.
 
     Parameters:
         graph: RDF graph containing the coordinates
@@ -522,13 +526,12 @@ def get_position_coords(
         each Position relation paired with its loaded coordinates
     """
     for position in position_rels:
-        coord_ids = sorted(position.coordinate_ids, key=str)
-        chosen = select_coordinate(position, graph, coord_policy)
-        if chosen is not None:
-            coord_ids = [chosen]
         yield (
             position,
-            [PositionCoordModel(coord_id=cid, graph=graph, position=position) for cid in coord_ids],
+            [
+                PositionCoordModel(coord_id=cid, graph=graph, position=position)
+                for cid in _narrowed_coord_ids(position, graph, coord_policy)
+            ],
         )
 
 
@@ -613,7 +616,7 @@ def get_orientation_coords(
     """Yield each Orientation relation with its OrientationCoordinate models.
 
     An Orientation sampled by several coordinates yields all of them, unless a ``coord_policy``
-    narrows it to the one the policy picks.
+    or a graph-declared evaluator on the Orientation narrows it to the one it picks.
 
     Parameters:
         graph: RDF graph containing the coordinates
@@ -624,15 +627,11 @@ def get_orientation_coords(
         each Orientation relation paired with its loaded coordinates
     """
     for orientation in orientations:
-        coord_ids = sorted(orientation.coordinate_ids, key=str)
-        chosen = select_coordinate(orientation, graph, coord_policy)
-        if chosen is not None:
-            coord_ids = [chosen]
         yield (
             orientation,
             [
                 OrientCoordModel(coord_id=cid, graph=graph, orientation=orientation)
-                for cid in coord_ids
+                for cid in _narrowed_coord_ids(orientation, graph, coord_policy)
             ],
         )
 
@@ -705,9 +704,9 @@ def get_pose_coords(
 ) -> Generator[tuple[PoseModel, list[PoseCoordModel]], None, None]:
     """Yield each Pose relation with its PoseCoordinate models.
 
-    A Pose sampled by several coordinates yields all of them, unless a ``coord_policy`` narrows
-    it to the one the policy picks; the policy is then propagated into that coordinate's own
-    component resolution.
+    A Pose sampled by several coordinates yields all of them, unless a ``coord_policy`` or a
+    graph-declared evaluator on the Pose narrows it to the one it picks; the policy is then
+    propagated into that coordinate's own component resolution.
 
     Parameters:
         graph: RDF graph containing the coordinates
@@ -718,15 +717,11 @@ def get_pose_coords(
         each Pose relation paired with its loaded coordinates
     """
     for pose in poses:
-        coord_ids = sorted(pose.coordinate_ids, key=str)
-        chosen = select_coordinate(pose, graph, coord_policy)
-        if chosen is not None:
-            coord_ids = [chosen]
         yield (
             pose,
             [
                 PoseCoordModel(coord_id=cid, graph=graph, pose=pose, coord_policy=coord_policy)
-                for cid in coord_ids
+                for cid in _narrowed_coord_ids(pose, graph, coord_policy)
             ],
         )
 
