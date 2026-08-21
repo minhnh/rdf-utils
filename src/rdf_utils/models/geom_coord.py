@@ -8,14 +8,18 @@ Coordinate models and values using concepts from
 from __future__ import annotations
 
 from collections.abc import Generator, Iterable
+from datetime import datetime
+from inspect import isclass
+from typing import Any, Protocol
 
 import numpy as np
-from rdflib import BNode, Graph, Literal, URIRef
+from rdflib import RDF, BNode, Graph, Literal, URIRef
+from rdflib.namespace import PROV, RDFS
 from scipy.spatial.transform import RigidTransform, Rotation
 
 from rdf_utils.collection import add_literal_list_pred, load_list_re
 from rdf_utils.constraints import ConstraintViolation
-from rdf_utils.models.common import ModelBase
+from rdf_utils.models.common import ModelBase, get_node_types
 from rdf_utils.models.distribution import distrib_from_sampled_quantity, sample_from_distrib
 from rdf_utils.models.geom_rel import (
     FrameModel,
@@ -26,6 +30,11 @@ from rdf_utils.models.geom_rel import (
     find_orientation_path,
     find_pose_path,
     find_position_path,
+)
+from rdf_utils.models.python import (
+    URI_PY_TYPE_MODULE_ATTR,
+    import_attr_from_model,
+    load_py_module_attr,
 )
 from rdf_utils.models.vocab import (
     URI_DISTRIB_PRED_DIM,
@@ -59,6 +68,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
+    URI_OBS_PRED_HAS_EVALUATOR,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_CM,
     URI_QUDT_UNIT_DEG,
@@ -127,13 +137,157 @@ class IFrameRelationCoord(ModelBase):
         self.as_seen_by = FrameModel(frame_id=seen_by_id, graph=graph)
 
 
+class CoordPolicyProtocol(Protocol):
+    """Choose one coordinate among a relation's candidates; context travels in ``**kwargs``."""
+
+    def __call__(self, candidates: list[URIRef], **kwargs: Any) -> URIRef: ...
+
+
+def resolve_coord_evaluator(graph: Graph, evaluator_id: URIRef) -> CoordPolicyProtocol:
+    """Resolve a graph-declared coordinate-selection evaluator, reached via ``obs:has-evaluator``.
+
+    Only a ``py:ModuleAttribute`` is supported: the referenced class or instance must satisfy
+    ``CoordPolicyProtocol``. There is no built-in evaluator type, unlike bdd-dsl's
+    ``LinearDistanceEvaluator`` -- coordinate selection has no domain-specific algorithm to name.
+
+    Parameters:
+        graph: RDF graph containing the evaluator node
+        evaluator_id: URI of the evaluator node
+
+    Returns:
+        the resolved, callable evaluator
+
+    Raises:
+        TypeError: the evaluator's type is unsupported, or it does not resolve to a callable
+    """
+    eval_types = get_node_types(graph=graph, node_id=evaluator_id)
+    if URI_PY_TYPE_MODULE_ATTR not in eval_types:
+        raise TypeError(
+            f"coordinate evaluator '{evaluator_id}' has unsupported types: {eval_types}"
+        )
+
+    model = ModelBase(node_id=evaluator_id, graph=graph, types=eval_types)
+    load_py_module_attr(graph=graph, model=model)
+    evaluator = import_attr_from_model(model=model)
+    if isclass(evaluator):
+        evaluator = evaluator()
+    if not callable(evaluator):
+        raise TypeError(
+            f"coordinate evaluator '{evaluator_id}' must be callable (CoordPolicyProtocol), "
+            f"got: {evaluator!r}"
+        )
+    return evaluator
+
+
+def select_coordinate(
+    relation: PositionModel | OrientationModel | PoseModel,
+    graph: Graph,
+    coord_policy: CoordPolicyProtocol | None = None,
+    **kwargs: Any,
+) -> URIRef | None:
+    """The one coordinate of ``relation`` to use, or None when the caller must decide: no
+    candidate at all, or several with no policy to choose among them.
+
+    A caller-supplied ``coord_policy`` takes precedence -- it is for open queries a specification
+    does not depend on. Absent one, an ``obs:has-evaluator`` declared on the relation is resolved
+    and used instead: declaring the choice in the graph is what a specification depends on.
+
+    Parameters:
+        relation: the relation whose coordinates to choose among
+        graph: RDF graph containing the coordinates and any declared evaluator
+        coord_policy: picks one coordinate among several; takes precedence over the graph
+        **kwargs: passed through to the policy, e.g. ``coord_id``/``component`` for a Pose's
+            components
+
+    Returns:
+        the chosen coordinate's URI, or None when the caller must decide what to do
+    """
+    policy = coord_policy
+    if policy is None:
+        found = graph.value(subject=relation.id, predicate=URI_OBS_PRED_HAS_EVALUATOR)
+        if found is not None:
+            if not isinstance(found, URIRef):
+                raise ConstraintViolation(
+                    "geometry",
+                    f"{relation.id} links to a non-URI evaluator via 'has-evaluator': {found}",
+                )
+            policy = resolve_coord_evaluator(graph, found)
+
+    candidates = sorted(relation.coordinate_ids, key=str)
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates or policy is None:
+        return None
+
+    chosen = policy(candidates, graph=graph, relation=relation.id, **kwargs)
+    if chosen not in set(candidates):
+        raise ConstraintViolation(
+            "geometry",
+            f"coord_policy returned '{chosen}', which is not a coordinate of relation "
+            f"'{relation.id}': {candidates}",
+        )
+    return chosen
+
+
+def record_coord_selection(
+    graph: Graph,
+    activity: URIRef,
+    relation: URIRef,
+    candidates: Iterable[URIRef],
+    chosen: URIRef,
+    policy: URIRef,
+    policy_label: str | None = None,
+    stamp: datetime | None = None,
+) -> None:
+    """Record a coordinate choice as PROV: ``activity`` used ``relation`` and every candidate, ran
+    as the ``policy`` agent, and the candidate it settled on is its qualified usage.
+
+    A selection creates no coordinate -- every candidate already exists in the graph and only its
+    role in this activity differs -- so nothing here is written as ``prov:wasGeneratedBy``.
+    """
+    # pyshacl runs no RDFS entailment, so every node states its PROV type explicitly.
+    graph.add((activity, RDF.type, PROV.Activity))
+    graph.add((relation, RDF.type, PROV.Entity))
+    graph.add((activity, PROV.used, relation))
+    for candidate in candidates:
+        graph.add((candidate, RDF.type, PROV.Entity))
+        graph.add((activity, PROV.used, candidate))
+
+    graph.add((activity, PROV.wasAssociatedWith, policy))
+    graph.add((policy, RDF.type, PROV.SoftwareAgent))
+    graph.add((policy, RDF.type, PROV.Agent))
+    if policy_label is not None:
+        graph.add((policy, RDFS.label, Literal(policy_label)))
+
+    # Reuse a matching usage rather than minting a second blank node, so re-recording the same
+    # selection leaves the graph as it was.
+    usage = next(
+        (
+            node
+            for node in graph.objects(activity, PROV.qualifiedUsage)
+            if (node, PROV.entity, chosen) in graph
+        ),
+        None,
+    )
+    if usage is None:
+        usage = BNode()
+        graph.add((activity, PROV.qualifiedUsage, usage))
+        graph.add((usage, RDF.type, PROV.Usage))
+        graph.add((usage, PROV.entity, chosen))
+    if stamp is not None:
+        # `set`, not `add`: both are single-valued, so a re-selection must not accumulate.
+        graph.set((activity, PROV.endedAtTime, Literal(stamp)))
+        graph.set((usage, PROV.atTime, Literal(stamp)))
+
+
 class PoseCoordModel(IFrameRelationCoord):
     """Model object for a PoseCoordinate.
 
     The position and orientation components may be supplied directly by a
     combined coordinate node or resolved from the Pose's referenced Position
-    and Orientation. Each resolved relation must have exactly one coordinate.
-    Direct transformation-matrix representations are not currently supported;
+    and Orientation. Each resolved relation must have exactly one coordinate,
+    unless a ``coord_policy`` is given to pick among several. Direct
+    transformation-matrix representations are not currently supported;
     they may be added as an alternative to component-coordinate resolution.
 
     Attributes:
@@ -144,12 +298,20 @@ class PoseCoordModel(IFrameRelationCoord):
         coord_id: URI of the PoseCoordinate in the graph
         graph: RDF graph for loading attributes
         pose: optional preloaded Pose relation; must match the coordinate's ``of-pose`` URI
+        coord_policy: picks one Position/Orientation coordinate when the relation has several
     """
 
     position_coord: PositionCoordModel
     orientation_coord: OrientCoordModel
 
-    def __init__(self, coord_id: URIRef, graph: Graph, pose: PoseModel | None = None) -> None:
+    def __init__(
+        self,
+        coord_id: URIRef,
+        graph: Graph,
+        pose: PoseModel | None = None,
+        *,
+        coord_policy: CoordPolicyProtocol | None = None,
+    ) -> None:
         pose_id = graph.value(subject=coord_id, predicate=URI_GEOM_PRED_OF_POSE)
         if not isinstance(pose_id, URIRef):
             raise ConstraintViolation(
@@ -191,13 +353,19 @@ class PoseCoordModel(IFrameRelationCoord):
                 )
             position_coord_id = self.id
         else:
-            if pose.position is None or len(pose.position.coordinate_ids) != 1:
+            position_coord_id = (
+                None
+                if pose.position is None
+                else select_coordinate(
+                    pose.position, graph, coord_policy, coord_id=self.id, component="position"
+                )
+            )
+            if position_coord_id is None:
                 raise ConstraintViolation(
                     "geometry",
                     f"PoseCoordinate {self.id} is not a Position Coord and "
                     f"does not link to a valid coord for Position {pose.position}",
                 )
-            position_coord_id = next(iter(pose.position.coordinate_ids))
 
         if URI_GEOM_TYPE_ORIENT_COORD in coordinate_types:
             if pose.orientation is None:
@@ -213,13 +381,19 @@ class PoseCoordModel(IFrameRelationCoord):
                 )
             orientation_coord_id = self.id
         else:
-            if pose.orientation is None or len(pose.orientation.coordinate_ids) != 1:
+            orientation_coord_id = (
+                None
+                if pose.orientation is None
+                else select_coordinate(
+                    pose.orientation, graph, coord_policy, coord_id=self.id, component="orientation"
+                )
+            )
+            if orientation_coord_id is None:
                 raise ConstraintViolation(
                     "geometry",
                     f"PoseCoordinate {self.id} is not an Orientation Coord and "
                     f"does not link to a valid coord for Orientation {pose.orientation}",
                 )
-            orientation_coord_id = next(iter(pose.orientation.coordinate_ids))
 
         self.position_coord = PositionCoordModel(position_coord_id, graph, position=pose.position)
         self.orientation_coord = OrientCoordModel(
@@ -329,22 +503,33 @@ class PositionCoordModel(ModelBase):
 
 
 def get_position_coords(
-    graph: Graph, position_rels: list[PositionModel]
+    graph: Graph,
+    position_rels: list[PositionModel],
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> Generator[tuple[PositionModel, list[PositionCoordModel]], None, None]:
-    """Yield each Position relation with all its PositionCoordinate models.
+    """Yield each Position relation with its PositionCoordinate models.
+
+    A Position sampled by several coordinates yields all of them, unless a ``coord_policy``
+    narrows it to the one the policy picks.
 
     Parameters:
         graph: RDF graph containing the coordinates
         position_rels: Position relations whose coordinates to load
+        coord_policy: picks one coordinate of a Position sampled by several
 
     Yields:
         each Position relation paired with its loaded coordinates
     """
     for position in position_rels:
-        coords = []
-        for coord_id in position.coordinate_ids:
-            coords.append(PositionCoordModel(coord_id=coord_id, graph=graph, position=position))
-        yield position, coords
+        coord_ids = sorted(position.coordinate_ids, key=str)
+        chosen = select_coordinate(position, graph, coord_policy)
+        if chosen is not None:
+            coord_ids = [chosen]
+        yield (
+            position,
+            [PositionCoordModel(coord_id=cid, graph=graph, position=position) for cid in coord_ids],
+        )
 
 
 def get_translation_between_points(
@@ -353,13 +538,15 @@ def get_translation_between_points(
     graph: Graph,
     rng: np.random.Generator | None = None,
     materialize_samples: bool = False,
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> tuple[float, float, float] | None:
     """Get the XYZ translation between two points.
 
-    Each Position along the path must have one VectorXYZ PositionCoordinate,
-    and all coordinates must share one QUDT unit. Without ``rng``, every
-    coordinate must have explicit XYZ values. With ``rng``, missing XYZ values
-    may be sampled from a SampledQuantity distribution.
+    Each Position along the path must have one VectorXYZ PositionCoordinate, unless a
+    ``coord_policy`` is given to pick among several, and all coordinates must share one QUDT unit.
+    Without ``rng``, every coordinate must have explicit XYZ values. With ``rng``, missing XYZ
+    values may be sampled from a SampledQuantity distribution.
 
     Parameters:
         of_point: point at the start of the path
@@ -368,6 +555,7 @@ def get_translation_between_points(
         rng: optional random generator that enables sampled coordinates
         materialize_samples: whether to write newly sampled XYZ values to the
                              graph; ignored when no sampling occurs
+        coord_policy: picks one PositionCoordinate when a Position has several
 
     Returns:
         summed XYZ translation in metres, a zero vector for the same point, or
@@ -379,7 +567,9 @@ def get_translation_between_points(
 
     translation = [0.0, 0.0, 0.0]
     unit = None
-    for position, coords in get_position_coords(graph=graph, position_rels=path):
+    for position, coords in get_position_coords(
+        graph=graph, position_rels=path, coord_policy=coord_policy
+    ):
         if len(coords) != 1:
             raise ConstraintViolation(
                 "geometry",
@@ -415,24 +605,36 @@ def get_translation_between_points(
 
 
 def get_orientation_coords(
-    graph: Graph, orientations: list[OrientationModel]
+    graph: Graph,
+    orientations: list[OrientationModel],
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> Generator[tuple[OrientationModel, list[OrientCoordModel]], None, None]:
-    """Yield each Orientation relation with all its OrientationCoordinate models.
+    """Yield each Orientation relation with its OrientationCoordinate models.
+
+    An Orientation sampled by several coordinates yields all of them, unless a ``coord_policy``
+    narrows it to the one the policy picks.
 
     Parameters:
         graph: RDF graph containing the coordinates
         orientations: Orientation relations whose coordinates to load
+        coord_policy: picks one coordinate of an Orientation sampled by several
 
     Yields:
         each Orientation relation paired with its loaded coordinates
     """
     for orientation in orientations:
-        orient_coords = []
-        for coord_id in orientation.coordinate_ids:
-            orient_coords.append(
-                OrientCoordModel(coord_id=coord_id, graph=graph, orientation=orientation)
-            )
-        yield orientation, orient_coords
+        coord_ids = sorted(orientation.coordinate_ids, key=str)
+        chosen = select_coordinate(orientation, graph, coord_policy)
+        if chosen is not None:
+            coord_ids = [chosen]
+        yield (
+            orientation,
+            [
+                OrientCoordModel(coord_id=cid, graph=graph, orientation=orientation)
+                for cid in coord_ids
+            ],
+        )
 
 
 def get_rotation_between_frames(
@@ -441,12 +643,14 @@ def get_rotation_between_frames(
     graph: Graph,
     rng: np.random.Generator | None = None,
     materialize_samples: bool = False,
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> Rotation | None:
     """Get the rotation between two frames.
 
-    Each Orientation along the path must have one OrientationCoordinate.
-    Without ``rng``, only explicit values are read. With ``rng``, missing
-    values may be sampled from a UniformRotation distribution.
+    Each Orientation along the path must have one OrientationCoordinate, unless a
+    ``coord_policy`` is given to pick among several. Without ``rng``, only explicit values are
+    read. With ``rng``, missing values may be sampled from a UniformRotation distribution.
 
     Parameters:
         of_frame: frame at the start of the path
@@ -454,6 +658,7 @@ def get_rotation_between_frames(
         graph: RDF graph containing the Orientation relations and coordinates
         rng: optional random generator that enables sampled coordinates
         materialize_samples: whether to write newly sampled values to the graph
+        coord_policy: picks one OrientationCoordinate when an Orientation has several
 
     Returns:
         composed rotation, identity for the same frame, or None when no
@@ -464,7 +669,9 @@ def get_rotation_between_frames(
         return None
 
     result = Rotation.identity()
-    for orientation, orient_coords in get_orientation_coords(graph=graph, orientations=path):
+    for orientation, orient_coords in get_orientation_coords(
+        graph=graph, orientations=path, coord_policy=coord_policy
+    ):
         if len(orient_coords) != 1:
             raise ConstraintViolation(
                 "geometry",
@@ -491,22 +698,37 @@ def get_rotation_between_frames(
 
 
 def get_pose_coords(
-    graph: Graph, poses: list[PoseModel]
+    graph: Graph,
+    poses: list[PoseModel],
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> Generator[tuple[PoseModel, list[PoseCoordModel]], None, None]:
-    """Yield each Pose relation with all its PoseCoordinate models.
+    """Yield each Pose relation with its PoseCoordinate models.
+
+    A Pose sampled by several coordinates yields all of them, unless a ``coord_policy`` narrows
+    it to the one the policy picks; the policy is then propagated into that coordinate's own
+    component resolution.
 
     Parameters:
         graph: RDF graph containing the coordinates
         poses: Pose relations whose coordinates to load
+        coord_policy: picks one coordinate of a Pose sampled by several
 
     Yields:
         each Pose relation paired with its loaded coordinates
     """
     for pose in poses:
-        pose_coords = []
-        for coord_id in pose.coordinate_ids:
-            pose_coords.append(PoseCoordModel(coord_id=coord_id, graph=graph, pose=pose))
-        yield pose, pose_coords
+        coord_ids = sorted(pose.coordinate_ids, key=str)
+        chosen = select_coordinate(pose, graph, coord_policy)
+        if chosen is not None:
+            coord_ids = [chosen]
+        yield (
+            pose,
+            [
+                PoseCoordModel(coord_id=cid, graph=graph, pose=pose, coord_policy=coord_policy)
+                for cid in coord_ids
+            ],
+        )
 
 
 def get_transform_between_frames(
@@ -515,12 +737,15 @@ def get_transform_between_frames(
     graph: Graph,
     rng: np.random.Generator | None = None,
     materialize_samples: bool = False,
+    *,
+    coord_policy: CoordPolicyProtocol | None = None,
 ) -> RigidTransform | None:
     """Get the rigid transform between two frames.
 
-    Each Pose along the path must have exactly one PoseCoordinate that resolves
-    to both a PositionCoordinate and an OrientationCoordinate. Position
-    coordinates along the path must share one QUDT unit. Missing coordinate
+    Each Pose along the path must have exactly one PoseCoordinate resolving to both a
+    PositionCoordinate and an OrientationCoordinate, unless a ``coord_policy`` is given, which
+    narrows a Pose with several and is propagated into that coordinate's own component
+    resolution. Position coordinates along the path must share one QUDT unit. Missing coordinate
     values may be sampled when an ``rng`` is supplied.
 
     Parameters:
@@ -529,6 +754,7 @@ def get_transform_between_frames(
         graph: RDF graph containing Pose relations and coordinates
         rng: optional random generator that enables sampled coordinates
         materialize_samples: whether to write newly sampled values to the graph
+        coord_policy: picks one PoseCoordinate, and its component coordinates, when several exist
 
     Returns:
         composed rigid transform with its translation in metres, identity for
@@ -540,7 +766,7 @@ def get_transform_between_frames(
 
     result = RigidTransform.identity()
     unit = None
-    for pose, pose_coords in get_pose_coords(graph=graph, poses=path):
+    for pose, pose_coords in get_pose_coords(graph=graph, poses=path, coord_policy=coord_policy):
         if len(pose_coords) != 1:
             raise ConstraintViolation(
                 "geometry",
