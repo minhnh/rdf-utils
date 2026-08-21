@@ -20,6 +20,7 @@ from rdf_utils.models.python import (
     URI_PY_TYPE_MODULE_ATTR,
 )
 from rdf_utils.models.vocab import (
+    URI_GEOM_PRED_HAS_COORD_POLICY,
     URI_GEOM_PRED_OF,
     URI_GEOM_PRED_OF_ORIENT,
     URI_GEOM_PRED_OF_POSE,
@@ -44,7 +45,6 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
-    URI_OBS_PRED_HAS_EVALUATOR,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_M,
 )
@@ -279,15 +279,15 @@ class CoordSelectionTest(unittest.TestCase):
         assert len(graph) == before
 
     def test_graph_declared_evaluator_selects_among_several(self):
-        """A relation may declare its own evaluator via `obs:has-evaluator` instead of a caller
+        """A relation may declare its own evaluator via `geom-coord:has-coordinate-policy` instead of a caller
         passing `coord_policy` -- the graph states the choice, not the reader."""
         graph = _base_graph()
         home, _, _ = _add_coord(graph, "home")
         _add_coord(graph, "start")
         evaluator = NS["evaluator/last-of"]
         _add_module_attr_evaluator(graph, evaluator, "_LastOfEvaluator")
-        graph.add((POSITION, URI_OBS_PRED_HAS_EVALUATOR, evaluator))
-        graph.add((ORIENTATION, URI_OBS_PRED_HAS_EVALUATOR, evaluator))
+        graph.add((POSITION, URI_GEOM_PRED_HAS_COORD_POLICY, evaluator))
+        graph.add((ORIENTATION, URI_GEOM_PRED_HAS_COORD_POLICY, evaluator))
 
         model = PoseCoordModel(coord_id=home, graph=graph)
         assert model.position_coord.id.endswith("start.position")

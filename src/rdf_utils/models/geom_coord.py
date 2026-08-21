@@ -47,6 +47,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_PRED_DIRECTION_COSINE_Y,
     URI_GEOM_PRED_DIRECTION_COSINE_Z,
     URI_GEOM_PRED_GAMMA,
+    URI_GEOM_PRED_HAS_COORD_POLICY,
     URI_GEOM_PRED_OF_ORIENT,
     URI_GEOM_PRED_OF_POSE,
     URI_GEOM_PRED_OF_POSITION,
@@ -68,7 +69,6 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
-    URI_OBS_PRED_HAS_EVALUATOR,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_CM,
     URI_QUDT_UNIT_DEG,
@@ -178,7 +178,7 @@ def select_coordinate(
     candidate at all, or several with no policy to choose among them.
 
     A caller-supplied ``coord_policy`` takes precedence -- it is for open queries a specification
-    does not depend on. Absent one, an ``obs:has-evaluator`` declared on the relation is resolved
+    does not depend on. Absent one, a policy declared on the relation via ``geom-coord:has-coordinate-policy`` is resolved
     and used instead: declaring the choice in the graph is what a specification depends on.
 
     Parameters:
@@ -199,19 +199,21 @@ def select_coordinate(
 
     policy = coord_policy
     if policy is None:
-        found = graph.value(subject=relation.id, predicate=URI_OBS_PRED_HAS_EVALUATOR, any=False)
+        found = graph.value(
+            subject=relation.id, predicate=URI_GEOM_PRED_HAS_COORD_POLICY, any=False
+        )
         if found is not None:
             if not isinstance(found, URIRef):
                 raise ConstraintViolation(
                     "geometry",
-                    f"{relation.id} links to a non-URI evaluator via 'has-evaluator': {found}",
+                    f"{relation.id} links to a non-URI policy via 'has-coordinate-policy': {found}",
                 )
             policy = _resolve_coord_evaluator(graph, found)
     if policy is None:
         return None
 
     chosen = policy(candidates, graph=graph, relation=relation.id, **kwargs)
-    if chosen not in candidates:
+    if chosen not in relation.coordinate_ids:
         raise ConstraintViolation(
             "geometry",
             f"coord_policy returned '{chosen}', which is not a coordinate of relation "
