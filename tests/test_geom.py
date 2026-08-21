@@ -615,13 +615,37 @@ class GeometryTest(unittest.TestCase):
         graph.add((orientation, URI_GEOM_PRED_OF, first))
         graph.add((orientation, URI_GEOM_PRED_WRT, last))
 
-        assert [relation.id for relation in find_pose_path(first, last, graph)] in (
-            [NS_TEST["pose-a1"], NS_TEST["pose-a2"]],
-            [NS_TEST["pose-b1"], NS_TEST["pose-b2"]],
-        )
+        assert [relation.id for relation in find_pose_path(first, last, graph)] == [
+            NS_TEST["pose-a1"],
+            NS_TEST["pose-a2"],
+        ]
         assert [relation.id for relation in find_orientation_path(first, last, graph)] == [
             orientation
         ]
+
+    def test_relation_path_is_deterministic_across_calls(self):
+        graph = Graph()
+        first, left, right, last = (
+            NS_TEST[f"determ-{name}"] for name in ("first", "left", "right", "last")
+        )
+        for frame in (first, left, right, last):
+            graph.add((frame, RDF.type, URI_GEOM_TYPE_FRAME))
+            graph.add((frame, URI_GEOM_PRED_ORIGIN, URIRef(f"{frame}-origin")))
+
+        edges = (
+            (NS_TEST["pose-a1"], first, left),
+            (NS_TEST["pose-a2"], left, last),
+            (NS_TEST["pose-b1"], first, right),
+            (NS_TEST["pose-b2"], right, last),
+        )
+        for relation, of_frame, wrt_frame in edges:
+            graph.add((relation, RDF.type, URI_GEOM_TYPE_POSE))
+            graph.add((relation, URI_GEOM_PRED_OF, of_frame))
+            graph.add((relation, URI_GEOM_PRED_WRT, wrt_frame))
+
+        expected = [NS_TEST["pose-a1"], NS_TEST["pose-a2"]]
+        for _ in range(3):
+            assert [relation.id for relation in find_pose_path(first, last, graph)] == expected
 
     def test_translation_xyz(self):
         graph = Graph()

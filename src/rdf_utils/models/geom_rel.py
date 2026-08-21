@@ -340,7 +340,8 @@ def find_relation_path(
 
     while forward_frontier and backward_frontier:
         next_forward: set[URIRef] = set()
-        for current in forward_frontier:
+        # Sorted: rdflib set order otherwise decides which equal-length path is found.
+        for current in sorted(forward_frontier, key=str):
             distance = forward_distance[current] + 1
 
             for next_entity, relation in relation_neighbors(
@@ -356,7 +357,7 @@ def find_relation_path(
         forward_frontier = next_forward
 
         next_backward: set[URIRef] = set()
-        for current in backward_frontier:
+        for current in sorted(backward_frontier, key=str):
             distance = backward_distance[current] + 1
 
             for previous_entity, relation in relation_neighbors(
@@ -377,7 +378,7 @@ def find_relation_path(
 
         meeting = min(
             meetings,
-            key=lambda node: forward_distance[node] + backward_distance[node],
+            key=lambda node: (forward_distance[node] + backward_distance[node], str(node)),
         )
 
         path = []
