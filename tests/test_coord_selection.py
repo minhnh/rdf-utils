@@ -6,13 +6,11 @@ import unittest
 from typing import Any
 
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
-from rdflib.namespace import PROV
 
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.geom_coord import (
     PoseCoordModel,
     get_transform_between_frames,
-    record_coord_selection,
 )
 from rdf_utils.models.python import (
     URI_PY_PRED_ATTR_NAME,
@@ -239,44 +237,6 @@ class CoordSelectionTest(unittest.TestCase):
             FRAME_A, FRAME_B, graph, coord_policy=_last_of_policy
         )
         assert transform is not None
-
-    def test_policy_records_the_choice_as_a_qualified_usage(self):
-        graph = _base_graph()
-        _add_coord(graph, "home")
-        _, start_pos, _ = _add_coord(graph, "start")
-
-        policy_uri = NS["policy/last-of"]
-        activity = NS["activity/select"]
-        candidates = [NS["home.position"], start_pos]
-        record_coord_selection(graph, activity, POSITION, candidates, start_pos, policy_uri)
-
-        assert (activity, RDF.type, PROV.Activity) in graph
-        assert (activity, PROV.used, POSITION) in graph
-        assert (activity, PROV.used, start_pos) in graph
-        assert (activity, PROV.wasAssociatedWith, policy_uri) in graph
-        assert (policy_uri, RDF.type, PROV.SoftwareAgent) in graph
-
-        # The selection did not create the coordinate, so it is a usage, not a generation.
-        usages = list(graph.objects(activity, PROV.qualifiedUsage))
-        assert len(usages) == 1
-        assert (usages[0], PROV.entity, start_pos) in graph
-        assert next(graph.objects(start_pos, PROV.wasGeneratedBy), None) is None
-
-    def test_recording_the_same_selection_twice_leaves_the_graph_as_it_was(self):
-        graph = _base_graph()
-        _add_coord(graph, "home")
-        _, start_pos, _ = _add_coord(graph, "start")
-
-        activity = NS["activity/select"]
-        candidates = [NS["home.position"], start_pos]
-        record_coord_selection(
-            graph, activity, POSITION, candidates, start_pos, NS["policy/last-of"]
-        )
-        before = len(graph)
-        record_coord_selection(
-            graph, activity, POSITION, candidates, start_pos, NS["policy/last-of"]
-        )
-        assert len(graph) == before
 
     def test_graph_declared_evaluator_selects_among_several(self):
         """A relation may declare its own evaluator via `geom-coord:has-coordinate-policy` instead of a caller

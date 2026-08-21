@@ -8,13 +8,11 @@ Coordinate models and values using concepts from
 from __future__ import annotations
 
 from collections.abc import Generator, Iterable
-from datetime import datetime
 from inspect import isclass
 from typing import Any, Protocol
 
 import numpy as np
-from rdflib import RDF, BNode, Graph, Literal, URIRef
-from rdflib.namespace import PROV, RDFS
+from rdflib import BNode, Graph, Literal, URIRef
 from scipy.spatial.transform import RigidTransform, Rotation
 
 from rdf_utils.collection import add_literal_list_pred, load_list_re
@@ -233,57 +231,6 @@ def _narrowed_coord_ids(
     if chosen is not None:
         return [chosen]
     return list(relation.coordinate_ids)
-
-
-def record_coord_selection(
-    graph: Graph,
-    activity: URIRef,
-    relation: URIRef,
-    candidates: Iterable[URIRef],
-    chosen: URIRef,
-    policy: URIRef,
-    policy_label: str | None = None,
-    stamp: datetime | None = None,
-) -> None:
-    """Record a coordinate choice as PROV: ``activity`` used ``relation`` and every candidate, ran
-    as the ``policy`` agent, and the candidate it settled on is its qualified usage.
-
-    A selection creates no coordinate -- every candidate already exists in the graph and only its
-    role in this activity differs -- so nothing here is written as ``prov:wasGeneratedBy``.
-    """
-    # pyshacl runs no RDFS entailment, so every node states its PROV type explicitly.
-    graph.add((activity, RDF.type, PROV.Activity))
-    graph.add((relation, RDF.type, PROV.Entity))
-    graph.add((activity, PROV.used, relation))
-    for candidate in candidates:
-        graph.add((candidate, RDF.type, PROV.Entity))
-        graph.add((activity, PROV.used, candidate))
-
-    graph.add((activity, PROV.wasAssociatedWith, policy))
-    graph.add((policy, RDF.type, PROV.SoftwareAgent))
-    graph.add((policy, RDF.type, PROV.Agent))
-    if policy_label is not None:
-        graph.add((policy, RDFS.label, Literal(policy_label)))
-
-    # Reuse a matching usage rather than minting a second blank node, so re-recording the same
-    # selection leaves the graph as it was.
-    usage = next(
-        (
-            node
-            for node in graph.objects(activity, PROV.qualifiedUsage)
-            if (node, PROV.entity, chosen) in graph
-        ),
-        None,
-    )
-    if usage is None:
-        usage = BNode()
-        graph.add((activity, PROV.qualifiedUsage, usage))
-        graph.add((usage, RDF.type, PROV.Usage))
-        graph.add((usage, PROV.entity, chosen))
-    if stamp is not None:
-        # `set`, not `add`: both are single-valued, so a re-selection must not accumulate.
-        graph.set((activity, PROV.endedAtTime, Literal(stamp)))
-        graph.set((usage, PROV.atTime, Literal(stamp)))
 
 
 class PoseCoordModel(IFrameRelationCoord):
