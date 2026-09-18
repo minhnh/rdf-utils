@@ -104,8 +104,15 @@ class ProvTest(unittest.TestCase):
 
     def test_log_keeps_iri_location(self):
         load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
-        load_log_prov(self.graph, LOG, RUN, "https://example.org/logs/1", self.t1)
-        self.assertIn((LOG, PROV.atLocation, URIRef("https://example.org/logs/1")), self.graph)
+        for location in ("https://example.org/logs/1", "urn:example:log", "file:/tmp/run.log"):
+            with self.subTest(location=location):
+                load_log_prov(self.graph, LOG, RUN, location, self.t1)
+                self.assertIn((LOG, PROV.atLocation, URIRef(location)), self.graph)
+
+    def test_running_activity_has_no_end(self):
+        load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0)
+        self.assertIsNone(self.graph.value(RUN, PROV.endedAtTime))
+        check_shacl_constraints(self.graph, SHACL)
 
 
 if __name__ == "__main__":

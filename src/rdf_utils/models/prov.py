@@ -4,6 +4,7 @@
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
@@ -16,7 +17,8 @@ from rdf_utils.models.vocab import (
 
 
 def _location_iri(location: str | URIRef) -> URIRef:
-    if isinstance(location, URIRef) or "://" in location:
+    # A one-letter scheme is a Windows drive, not an IRI.
+    if isinstance(location, URIRef) or len(urlsplit(location).scheme) > 1:
         return URIRef(location)
     return URIRef(Path(location).resolve().as_uri())
 
@@ -45,7 +47,7 @@ def add_activity(
     used: Iterable[URIRef],
     agent_id: URIRef,
     started: datetime,
-    ended: datetime,
+    ended: datetime | None = None,
 ) -> URIRef:
     """Add a `prov:Activity` of a prov extension subtype.
 
@@ -56,7 +58,7 @@ def add_activity(
         used: URIs of the entities the activity used
         agent_id: URI of the agent the activity is associated with
         started: start time, stored as `prov:startedAtTime`
-        ended: end time, stored as `prov:endedAtTime`
+        ended: end time, stored as `prov:endedAtTime`; None for an activity still running
 
     Returns:
         `activity_id`
@@ -67,7 +69,8 @@ def add_activity(
         graph.add((activity_id, PROV.used, entity_id))
     graph.add((activity_id, PROV.wasAssociatedWith, agent_id))
     graph.add((activity_id, PROV.startedAtTime, Literal(started)))
-    graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
+    if ended is not None:
+        graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
     return activity_id
 
 
@@ -111,7 +114,7 @@ def load_transformation_prov(
     targets: Mapping[URIRef, str | None],
     pkg_id: URIRef,
     started: datetime,
-    ended: datetime,
+    ended: datetime | None = None,
 ) -> URIRef:
     """Add a `prov-ext:Transformation` of source entities into target entities.
 
@@ -122,7 +125,7 @@ def load_transformation_prov(
         targets: URIs of the entities generated, each mapped to its media type or None
         pkg_id: URI of the software package that ran the transformation
         started: start time
-        ended: end time
+        ended: end time, None while still running
 
     Returns:
         `activity_id`
@@ -145,7 +148,7 @@ def load_sampling_prov(
     quantity_id: URIRef,
     agent_id: URIRef,
     started: datetime,
-    ended: datetime,
+    ended: datetime | None = None,
 ) -> URIRef:
     """Add a `prov-ext:Generalization` that sampled a quantity into generated entities.
 
@@ -157,7 +160,7 @@ def load_sampling_prov(
         quantity_id: URI of the sampled quantity
         agent_id: URI of the agent that ran the sampling
         started: start time
-        ended: end time
+        ended: end time, None while still running
 
     Returns:
         `activity_id`
@@ -179,7 +182,7 @@ def load_run_prov(
     used: Iterable[URIRef],
     agent_id: URIRef,
     started: datetime,
-    ended: datetime,
+    ended: datetime | None = None,
 ) -> URIRef:
     """Add a `prov-ext:Execution` of the used entities.
 
@@ -189,7 +192,7 @@ def load_run_prov(
         used: URIs of the entities the run used, e.g. the model
         agent_id: URI of the agent that ran it
         started: start time
-        ended: end time
+        ended: end time, None while still running
 
     Returns:
         `run_id`
