@@ -7,7 +7,8 @@ from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
-    load_log_prov,
+    add_entity,
+    add_file_entity,
     load_pkg_prov,
     load_run_prov,
     load_sampling_prov,
@@ -48,6 +49,10 @@ class ProvTest(unittest.TestCase):
             commit="0123abcd",
             repository="https://github.com/secorolab/motion-spec",
         )
+        # What the activities use is the caller's to type.
+        add_entity(self.graph, SPEC)
+        add_entity(self.graph, MODEL)
+        add_entity(self.graph, QUANTITY)
 
     def test_pkg(self):
         self.assertIn((PKG, RDF.type, PROV.SoftwareAgent), self.graph)
@@ -61,24 +66,22 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_transformation(self):
-        load_transformation_prov(
-            self.graph,
-            TRANSFORM,
-            {SPEC: "text/x-motion-spec"},
-            {MODEL: "application/ld+json"},
-            PKG,
-            self.t0,
-            self.t1,
-        )
+        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)
         self.assertIn((TRANSFORM, RDF.type, URI_PROV_EXT_TYPE_TRANSFORMATION), self.graph)
         self.assertIn((TRANSFORM, PROV.used, SPEC), self.graph)
         self.assertIn((MODEL, PROV.wasGeneratedBy, TRANSFORM), self.graph)
-        self.assertIn((SPEC, DCTERMS.format, Literal("text/x-motion-spec")), self.graph)
         self.assertEqual(self.graph.value(TRANSFORM, PROV.startedAtTime).toPython(), self.t0)
         check_shacl_constraints(self.graph, SHACL)
 
     def test_transformation_needs_target(self):
-        load_transformation_prov(self.graph, TRANSFORM, {SPEC: None}, {}, PKG, self.t0, self.t1)
+        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [], PKG, self.t0, self.t1)
+        with self.assertRaises(SHACLViolation):
+            check_shacl_constraints(self.graph, SHACL)
+
+    def test_used_entities_are_not_typed_by_the_loader(self):
+        untyped = URIRef(f"{URI_TEST}/design-node")
+        load_run_prov(self.graph, RUN, [untyped], PKG, self.t0, self.t1)
+        self.assertNotIn((untyped, RDF.type, PROV.Entity), self.graph)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
 
@@ -92,21 +95,28 @@ class ProvTest(unittest.TestCase):
 
     def test_run_and_log(self):
         load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
-        load_log_prov(
-            self.graph, LOG, RUN, "/tmp/run/frames.log", self.t1, fmt="application/octet-stream"
+        add_file_entity(
+            self.graph,
+            LOG,
+            "/tmp/run/frames.log",
+            generated_by=RUN,
+            generated_at=self.t1,
+            modified_at=self.t1,
+            fmt="application/octet-stream",
         )
         self.assertIn((RUN, RDF.type, URI_PROV_EXT_TYPE_EXECUTION), self.graph)
         self.assertIn((RUN, PROV.wasAssociatedWith, PKG), self.graph)
         self.assertIn((LOG, PROV.wasGeneratedBy, RUN), self.graph)
         self.assertIn((LOG, PROV.atLocation, URIRef("file:///tmp/run/frames.log")), self.graph)
+        self.assertIn((LOG, DCTERMS.format, Literal("application/octet-stream")), self.graph)
         self.assertEqual(self.graph.value(LOG, PROV.generatedAtTime).toPython(), self.t1)
+        self.assertEqual(self.graph.value(LOG, DCTERMS.modified).toPython(), self.t1)
         check_shacl_constraints(self.graph, SHACL)
 
-    def test_log_keeps_iri_location(self):
-        load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
+    def test_file_keeps_iri_location(self):
         for location in ("https://example.org/logs/1", "urn:example:log", "file:/tmp/run.log"):
             with self.subTest(location=location):
-                load_log_prov(self.graph, LOG, RUN, location, self.t1)
+                add_file_entity(self.graph, LOG, location)
                 self.assertIn((LOG, PROV.atLocation, URIRef(location)), self.graph)
 
     def test_running_activity_has_no_end(self):
