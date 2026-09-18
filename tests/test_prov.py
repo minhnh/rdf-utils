@@ -83,9 +83,7 @@ class ProvTest(unittest.TestCase):
             check_shacl_constraints(self.graph, SHACL)
 
     def test_sampling(self):
-        load_sampling_prov(
-            self.graph, SAMPLING, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0, self.t1
-        )
+        load_sampling_prov(self.graph, SAMPLING, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0, self.t1)
         self.assertIn((SAMPLING, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION), self.graph)
         self.assertIn((SAMPLING, PROV.used, QUANTITY), self.graph)
         self.assertIn((SAMPLING, PROV.used, MODEL), self.graph)
