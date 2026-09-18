@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from rdflib import RDF, Graph, Literal, URIRef
+from rdflib import RDF, BNode, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.models.vocab import (
@@ -69,6 +69,31 @@ def add_file_entity(
         graph.add((file_id, DCTERMS.format, Literal(fmt)))
 
 
+def add_agent(
+    graph: Graph,
+    agent_id: URIRef,
+    types: Iterable[URIRef],
+    name: str | None = None,
+    acted_on_behalf_of: URIRef | None = None,
+) -> None:
+    """Add a `prov:Agent` of the given kinds.
+
+    Parameters:
+        graph: RDF graph to add the agent to
+        agent_id: URI of the agent
+        types: its kinds, e.g. `prov:SoftwareAgent` or `prov:Person`; `prov:Agent` is always added
+        name: stored as `schema:name`, which a software agent must carry
+        acted_on_behalf_of: URI of the agent this one acted for, stored as `prov:actedOnBehalfOf`
+    """
+    graph.add((agent_id, RDF.type, PROV.Agent))
+    for type_id in types:
+        graph.add((agent_id, RDF.type, type_id))
+    if name is not None:
+        graph.add((agent_id, SDO.name, Literal(name)))
+    if acted_on_behalf_of is not None:
+        graph.add((agent_id, PROV.actedOnBehalfOf, acted_on_behalf_of))
+
+
 def add_activity(
     graph: Graph,
     activity_id: URIRef,
@@ -101,6 +126,24 @@ def add_activity(
         graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
 
 
+def add_usage(graph: Graph, activity_id: URIRef, entity_id: URIRef, role_id: URIRef) -> None:
+    """Add what part an entity played for an activity, as a qualified `prov:Usage`.
+
+    Parameters:
+        graph: RDF graph to add the usage to
+        activity_id: URI of the activity that used the entity
+        entity_id: URI of the entity used
+        role_id: URI of the `prov:Role` it was used as; typed here
+    """
+    usage = BNode()
+    graph.add((activity_id, PROV.used, entity_id))
+    graph.add((activity_id, PROV.qualifiedUsage, usage))
+    graph.add((usage, RDF.type, PROV.Usage))
+    graph.add((usage, PROV.entity, entity_id))
+    graph.add((usage, PROV.hadRole, role_id))
+    graph.add((role_id, RDF.type, PROV.Role))
+
+
 def load_pkg_prov(
     graph: Graph,
     pkg_id: URIRef,
@@ -119,9 +162,7 @@ def load_pkg_prov(
         commit: revision identifier, stored as `schema:identifier`
         repository: URL of the source repository, stored as `schema:codeRepository`
     """
-    graph.add((pkg_id, RDF.type, PROV.SoftwareAgent))
-    graph.add((pkg_id, RDF.type, PROV.Agent))
-    graph.add((pkg_id, SDO.name, Literal(name)))
+    add_agent(graph, pkg_id, (PROV.SoftwareAgent,), name)
     if version is not None:
         graph.add((pkg_id, SDO.softwareVersion, Literal(version)))
     if commit is not None:
