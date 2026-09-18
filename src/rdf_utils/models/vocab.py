@@ -15,6 +15,7 @@ from rdf_utils.namespace import (
     NS_MM_KC_EXT,
     NS_MM_KC_STAT,
     NS_MM_OBS,
+    NS_MM_PROV_EXT,
     NS_MM_QUDT,
     NS_MM_QUDT_QTY,
     NS_MM_QUDT_UNIT,
@@ -269,6 +270,13 @@ URI_AGN_TYPE_AGN_MODEL = NS_MM_AGN["AgentModel"]
 URI_AGN_PRED_OF_AGN = NS_MM_AGN["of-agent"]
 URI_AGN_PRED_HAS_AGN = NS_MM_AGN["has-agent"]
 URI_AGN_PRED_HAS_AGN_MODEL = NS_MM_AGN["has-agent-model"]
+
+# Provenance extension
+URI_PROV_EXT_TYPE_SPECIFICATION = NS_MM_PROV_EXT["Specification"]
+URI_PROV_EXT_TYPE_TRANSFORMATION = NS_MM_PROV_EXT["Transformation"]
+URI_PROV_EXT_TYPE_GENERALIZATION = NS_MM_PROV_EXT["Generalization"]
+URI_PROV_EXT_TYPE_EXECUTION = NS_MM_PROV_EXT["Execution"]
+URI_PROV_EXT_TYPE_ASSURANCE = NS_MM_PROV_EXT["Assurance"]
 
 # Execution Context
 URI_EXEC_TYPE_SYS_RES = NS_MM_EXEC["SystemResource"]

@@ -18,6 +18,10 @@ URL_MM_DISTRIB_JSON = f"{URL_SECORO_MM}/probability/distribution.json"
 URL_MM_DISTRIB_SHACL = f"{URL_SECORO_MM}/probability/distribution.shacl.ttl"
 URL_MM_OBS_SHACL = f"{URL_SECORO_MM}/observation.shacl.ttl"
 URL_MM_TC_SHACL = f"{URL_SECORO_MM}/time-constraint.shacl.ttl"
+URL_MM_PROV_JSON = f"{URL_SECORO_MM}/prov.json"
+URL_MM_PROV_SHACL = f"{URL_SECORO_MM}/prov.shacl.ttl"
+URL_MM_PROV_EXT_JSON = f"{URL_SECORO_MM}/prov-extension.json"
+URL_MM_PROV_EXT_SHACL = f"{URL_SECORO_MM}/prov-extension.shacl.ttl"
 
 URL_MM_QUDT_JSON = f"{URL_COMP_ROB2B}/metamodels/qudt.json"
 URL_MM_GEOM_JSON = f"{URL_COMP_ROB2B}/metamodels/geometry/structural-entities.json"
@@ -55,3 +59,4 @@ NS_MM_EL = Namespace(f"{URL_SECORO_MM}/behaviour/event-loop#")
 NS_OWL_TIME = Namespace("http://www.w3.org/2006/time#")
 NS_MM_DISTRIB = Namespace(f"{URL_SECORO_MM}/probability/distribution#")
 NS_MM_ACT = Namespace(f"{URL_SECORO_MM}/robot/actuation#")
+NS_MM_PROV_EXT = Namespace(f"{URL_SECORO_MM}/prov#")
