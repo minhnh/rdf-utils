@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from rdflib import RDF, BNode, Graph, Literal, URIRef
+from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.models.vocab import (
@@ -41,7 +41,7 @@ def add_file_entity(
     generated_at: datetime | None = None,
     modified_at: datetime | None = None,
     fmt: str | None = None,
-    types: Iterable[URIRef] = (),
+    additional_types: Iterable[URIRef] = (),
 ) -> None:
     """Add a file as a `prov:Entity` at a location, e.g. a log a run generated.
 
@@ -53,10 +53,10 @@ def add_file_entity(
         generated_at: time the file was complete, stored as `prov:generatedAtTime`
         modified_at: time the file last changed, stored as `dcterms:modified`
         fmt: media type of the file, stored as `dcterms:format`
-        types: further types for the file node
+        additional_types: its kinds besides `prov:Entity`
     """
     add_entity(graph, file_id)
-    for type_id in types:
+    for type_id in additional_types:
         graph.add((file_id, RDF.type, type_id))
     graph.add((file_id, PROV.atLocation, _location_iri(location)))
     if generated_by is not None:
@@ -72,7 +72,7 @@ def add_file_entity(
 def add_agent(
     graph: Graph,
     agent_id: URIRef,
-    types: Iterable[URIRef],
+    additional_types: Iterable[URIRef],
     name: str | None = None,
     acted_on_behalf_of: URIRef | None = None,
 ) -> None:
@@ -81,12 +81,12 @@ def add_agent(
     Parameters:
         graph: RDF graph to add the agent to
         agent_id: URI of the agent
-        types: its kinds, e.g. `prov:SoftwareAgent` or `prov:Person`; `prov:Agent` is always added
+        additional_types: its kinds besides `prov:Agent`, e.g. `prov:SoftwareAgent` or `prov:Person`
         name: stored as `schema:name`, which a software agent must carry
         acted_on_behalf_of: URI of the agent this one acted for, stored as `prov:actedOnBehalfOf`
     """
     graph.add((agent_id, RDF.type, PROV.Agent))
-    for type_id in types:
+    for type_id in additional_types:
         graph.add((agent_id, RDF.type, type_id))
     if name is not None:
         graph.add((agent_id, SDO.name, Literal(name)))
@@ -97,26 +97,27 @@ def add_agent(
 def add_activity(
     graph: Graph,
     activity_id: URIRef,
-    types: Iterable[URIRef],
+    additional_types: Iterable[URIRef],
     used: Iterable[URIRef],
     agent_id: URIRef,
     started: datetime,
     ended: datetime | None = None,
 ) -> None:
-    """Add an activity: what it used, who ran it and when.
+    """Add a `prov:Activity` of the given kinds: what it used, who ran it and when.
 
     The used entities are the caller's own nodes and are not typed here.
 
     Parameters:
         graph: RDF graph to add the activity to
         activity_id: URI of the activity
-        types: its classes, e.g. `prov:Activity` and `URI_PROV_EXT_TYPE_EXECUTION`
+        additional_types: its kinds besides `prov:Activity`, e.g. `URI_PROV_EXT_TYPE_EXECUTION`
         used: URIs of the entities the activity used
         agent_id: URI of the agent the activity is associated with
         started: start time, stored as `prov:startedAtTime`
         ended: end time, stored as `prov:endedAtTime`; None for an activity still running
     """
-    for type_id in types:
+    graph.add((activity_id, RDF.type, PROV.Activity))
+    for type_id in additional_types:
         graph.add((activity_id, RDF.type, type_id))
     for entity_id in used:
         graph.add((activity_id, PROV.used, entity_id))
@@ -124,24 +125,6 @@ def add_activity(
     graph.add((activity_id, PROV.startedAtTime, Literal(started)))
     if ended is not None:
         graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
-
-
-def add_usage(graph: Graph, activity_id: URIRef, entity_id: URIRef, role_id: URIRef) -> None:
-    """Add what part an entity played for an activity, as a qualified `prov:Usage`.
-
-    Parameters:
-        graph: RDF graph to add the usage to
-        activity_id: URI of the activity that used the entity
-        entity_id: URI of the entity used
-        role_id: URI of the `prov:Role` it was used as; typed here
-    """
-    usage = BNode()
-    graph.add((activity_id, PROV.used, entity_id))
-    graph.add((activity_id, PROV.qualifiedUsage, usage))
-    graph.add((usage, RDF.type, PROV.Usage))
-    graph.add((usage, PROV.entity, entity_id))
-    graph.add((usage, PROV.hadRole, role_id))
-    graph.add((role_id, RDF.type, PROV.Role))
 
 
 def load_pkg_prov(
@@ -197,7 +180,7 @@ def load_transformation_prov(
     add_activity(
         graph,
         activity_id,
-        (PROV.Activity, URI_PROV_EXT_TYPE_TRANSFORMATION),
+        (URI_PROV_EXT_TYPE_TRANSFORMATION,),
         sources,
         pkg_id,
         started,
@@ -233,7 +216,7 @@ def load_sampling_prov(
     add_activity(
         graph,
         activity_id,
-        (PROV.Activity, URI_PROV_EXT_TYPE_GENERALIZATION),
+        (URI_PROV_EXT_TYPE_GENERALIZATION,),
         [*used, quantity_id],
         agent_id,
         started,
@@ -262,7 +245,7 @@ def load_execution_prov(
     add_activity(
         graph,
         activity_id,
-        (PROV.Activity, URI_PROV_EXT_TYPE_EXECUTION),
+        (URI_PROV_EXT_TYPE_EXECUTION,),
         used,
         pkg_id,
         started,

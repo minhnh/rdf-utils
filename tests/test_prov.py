@@ -10,7 +10,6 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
-    add_usage,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
@@ -73,17 +72,6 @@ class ProvTest(unittest.TestCase):
         self.assertIn((TRANSFORM, PROV.used, SPEC), self.graph)
         self.assertIn((MODEL, PROV.wasGeneratedBy, TRANSFORM), self.graph)
         self.assertEqual(self.graph.value(TRANSFORM, PROV.startedAtTime).toPython(), self.t0)
-        check_shacl_constraints(self.graph, SHACL)
-
-    def test_usage_role(self):
-        role = URIRef(f"{URI_TEST}/role/source")
-        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)
-        add_usage(self.graph, TRANSFORM, SPEC, role)
-        usage = self.graph.value(TRANSFORM, PROV.qualifiedUsage)
-        self.assertIn((usage, RDF.type, PROV.Usage), self.graph)
-        self.assertEqual(self.graph.value(usage, PROV.entity), SPEC)
-        self.assertEqual(self.graph.value(usage, PROV.hadRole), role)
-        self.assertIn((role, RDF.type, PROV.Role), self.graph)
         check_shacl_constraints(self.graph, SHACL)
 
     def test_agent_kinds(self):
