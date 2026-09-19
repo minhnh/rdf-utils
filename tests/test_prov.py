@@ -11,8 +11,8 @@ from rdf_utils.models.prov import (
     add_entity,
     add_file_entity,
     add_usage,
+    load_execution_prov,
     load_pkg_prov,
-    load_run_prov,
     load_sampling_prov,
     load_transformation_prov,
 )
@@ -106,7 +106,7 @@ class ProvTest(unittest.TestCase):
 
     def test_used_entities_are_not_typed_by_the_loader(self):
         untyped = URIRef(f"{URI_TEST}/design-node")
-        load_run_prov(self.graph, RUN, [untyped], PKG, self.t0, self.t1)
+        load_execution_prov(self.graph, RUN, [untyped], PKG, self.t0, self.t1)
         self.assertNotIn((untyped, RDF.type, PROV.Entity), self.graph)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
@@ -119,8 +119,8 @@ class ProvTest(unittest.TestCase):
         self.assertIn((SAMPLE, PROV.wasGeneratedBy, SAMPLING), self.graph)
         check_shacl_constraints(self.graph, SHACL)
 
-    def test_run_and_log(self):
-        load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
+    def test_execution_and_log(self):
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
         add_file_entity(
             self.graph,
             LOG,
@@ -146,7 +146,7 @@ class ProvTest(unittest.TestCase):
                 self.assertIn((LOG, PROV.atLocation, URIRef(location)), self.graph)
 
     def test_running_activity_has_no_end(self):
-        load_run_prov(self.graph, RUN, [MODEL], PKG, self.t0)
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0)
         self.assertIsNone(self.graph.value(RUN, PROV.endedAtTime))
         check_shacl_constraints(self.graph, SHACL)
 

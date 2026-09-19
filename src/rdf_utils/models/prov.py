@@ -241,24 +241,30 @@ def load_sampling_prov(
     )
 
 
-def load_run_prov(
+def load_execution_prov(
     graph: Graph,
-    run_id: URIRef,
+    activity_id: URIRef,
     used: Iterable[URIRef],
-    agent_id: URIRef,
+    pkg_id: URIRef,
     started: datetime,
     ended: datetime | None = None,
 ) -> None:
-    """Add a `prov-ext:Execution` of the used entities.
+    """Add a `prov-ext:Execution` of the used entities by a software package.
 
     Parameters:
-        graph: RDF graph to add the run to
-        run_id: URI of the run
-        used: URIs of the entities the run used, e.g. the model
-        agent_id: URI of the agent that ran it
+        graph: RDF graph to add the execution to
+        activity_id: URI of the execution
+        used: URIs of the entities executed, e.g. an executable and its configuration
+        pkg_id: URI of the software package that executed them
         started: start time
         ended: end time, None while still running
     """
     add_activity(
-        graph, run_id, (PROV.Activity, URI_PROV_EXT_TYPE_EXECUTION), used, agent_id, started, ended
+        graph,
+        activity_id,
+        (PROV.Activity, URI_PROV_EXT_TYPE_EXECUTION),
+        used,
+        pkg_id,
+        started,
+        ended,
     )
