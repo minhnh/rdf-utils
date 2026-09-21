@@ -22,6 +22,7 @@ dependencies = [
   "rdflib>=7.1.0",
   "pyshacl",
   "platformdirs",
+  "GitPython",
 ]
 [project.optional-dependencies]
 all = [

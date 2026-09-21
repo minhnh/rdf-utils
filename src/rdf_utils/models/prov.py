@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: MPL-2.0
 """Record provenance in a graph with the PROV-O terms and the secoro prov extension."""
 
+import json
 from collections.abc import Iterable
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
+from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
@@ -125,6 +129,69 @@ def add_activity(
     graph.add((activity_id, PROV.startedAtTime, Literal(started)))
     if ended is not None:
         graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
+
+
+def _repository_iri(url: str) -> str:
+    # git config keeps an scp-style remote, git@host:owner/repo, verbatim; it is not an IRI.
+    if "://" not in url:
+        host, sep, path = url.partition(":")
+        # A one-letter host is a Windows drive, and a leading slash means a port or a path.
+        if sep and len(host) > 1 and not path.startswith("/"):
+            url = f"https://{host.rpartition('@')[2]}/{path}"
+    return url.removesuffix(".git")
+
+
+def get_git_info(path: Path) -> tuple[str | None, str | None]:
+    """Read the revision and repository of a checkout, for a source that is not a package.
+
+    Parameters:
+        path: any path inside the worktree; the repository owning it is the one read
+
+    Returns:
+        Revision, suffixed `-dirty` when the worktree has changes, and repository
+    """
+    try:
+        repo = Repo(path, search_parent_directories=True)
+        # A repository without a commit has no HEAD to read.
+        commit = repo.head.commit.hexsha
+    except (InvalidGitRepositoryError, NoSuchPathError, ValueError):
+        return None, None
+    if repo.is_dirty(untracked_files=True):
+        commit = f"{commit}-dirty"
+    remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
+    return commit, _repository_iri(remote) if remote else None
+
+
+def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
+    """Read off an installed package what describes it, from its metadata and its source.
+
+    Parameters:
+        name: distribution name of the package, e.g. `rdf_utils`
+
+    Returns:
+        Name, version, revision and repository, in the order `load_pkg_prov` takes them
+    """
+    try:
+        package = distribution(name)
+    except PackageNotFoundError:
+        return name, None, None, None
+
+    direct_url = package.read_text("direct_url.json")
+    try:
+        origin = json.loads(direct_url) if direct_url else {}
+    except json.JSONDecodeError:
+        origin = {}
+
+    commit = (origin.get("vcs_info") or {}).get("commit_id")
+    if commit:
+        return package.name, package.version, commit, _repository_iri(origin["url"])
+
+    parsed = urlsplit(origin.get("url", ""))
+    # A non-editable install is a copy, so its source directory need not still match.
+    if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
+        path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
+        return package.name, package.version, *get_git_info(Path(url2pathname(path)))
+    return package.name, package.version, None, None
 
 
 def load_pkg_prov(
