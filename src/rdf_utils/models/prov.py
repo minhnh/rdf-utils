@@ -141,7 +141,15 @@ def _repository_iri(url: str) -> str:
     return url.removesuffix(".git")
 
 
-def _git_source(path: Path) -> tuple[str | None, str | None]:
+def get_git_info(path: Path) -> tuple[str | None, str | None]:
+    """Read the revision and repository of a checkout, for a source that is not a package.
+
+    Parameters:
+        path: any path inside the worktree; the repository owning it is the one read
+
+    Returns:
+        Revision, suffixed `-dirty` when the worktree has changes, and repository
+    """
     try:
         repo = Repo(path, search_parent_directories=True)
         # A repository without a commit has no HEAD to read.
@@ -182,7 +190,7 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
     # A non-editable install is a copy, so its source directory need not still match.
     if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
         path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
-        return package.name, package.version, *_git_source(Path(url2pathname(path)))
+        return package.name, package.version, *get_git_info(Path(url2pathname(path)))
     return package.name, package.version, None, None
 
 

@@ -2,6 +2,7 @@
 import re
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
@@ -11,6 +12,7 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
+    get_git_info,
     get_pkg_info,
     load_execution_prov,
     load_pkg_prov,
@@ -82,6 +84,12 @@ class ProvTest(unittest.TestCase):
         self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
         self.assertIn((installed, SDO.codeRepository, URIRef(repository)), self.graph)
         check_shacl_constraints(self.graph, SHACL)
+
+    def test_git_info_of_a_checkout_and_of_a_path_outside_one(self):
+        revision, repository = get_git_info(Path(__file__).parent)
+        self.assertRegex(revision, REVISION)
+        self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
+        self.assertEqual(get_git_info(Path("/")), (None, None))
 
     def test_pkg_info_of_a_package_that_is_not_installed(self):
         missing = "rdf-utils-no-such-distribution"
