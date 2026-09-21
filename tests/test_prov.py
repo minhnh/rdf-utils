@@ -11,7 +11,7 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
-    get_pkg_prov,
+    get_pkg_info,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
@@ -69,21 +69,23 @@ class ProvTest(unittest.TestCase):
         )
         check_shacl_constraints(self.graph, SHACL)
 
-    def test_pkg_prov_describes_an_installed_package(self):
-        version, revision, repository = get_pkg_prov("rdf_utils")
+    def test_pkg_info_of_an_installed_package(self):
+        name, version, revision, repository = get_pkg_info("rdf_utils")
+        self.assertEqual(name, "rdf_utils")
         self.assertIsNotNone(version)
         # A wheel install records no source, so only the shape of a revision is guaranteed.
         if revision is not None:
             self.assertRegex(revision, REVISION)
         self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
         installed = URIRef(f"{URI_TEST}/rdf-utils")
-        load_pkg_prov(self.graph, installed, "rdf-utils", version, revision, repository)
+        load_pkg_prov(self.graph, installed, name, version, revision, repository)
         self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
         self.assertIn((installed, SDO.codeRepository, URIRef(repository)), self.graph)
         check_shacl_constraints(self.graph, SHACL)
 
-    def test_pkg_prov_of_a_package_that_is_not_installed(self):
-        self.assertEqual(get_pkg_prov("rdf-utils-no-such-distribution"), (None, None, None))
+    def test_pkg_info_of_a_package_that_is_not_installed(self):
+        missing = "rdf-utils-no-such-distribution"
+        self.assertEqual(get_pkg_info(missing), (missing, None, None, None))
 
     def test_transformation(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)
