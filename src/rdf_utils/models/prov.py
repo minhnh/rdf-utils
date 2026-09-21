@@ -4,7 +4,7 @@
 import json
 from collections.abc import Iterable
 from datetime import datetime
-from importlib.metadata import Distribution, PackageNotFoundError, distribution
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
@@ -154,20 +154,6 @@ def _git_source(path: Path) -> tuple[str | None, str | None]:
     return commit, _repository_iri(remote) if remote else None
 
 
-def _metadata_repository(package: Distribution) -> str | None:
-    urls = {}
-    for entry in package.metadata.get_all("Project-URL") or ():
-        label, _, url = entry.partition(",")
-        urls[label.strip().lower()] = url.strip()
-    home_page = package.metadata.get("Home-page")
-    if home_page:
-        urls.setdefault("homepage", home_page)
-    for key in ("repository", "source", "homepage"):
-        if key in urls:
-            return urls[key].removesuffix(".git")
-    return None
-
-
 def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
     """Read off an installed package what describes it, from its metadata and its source.
 
@@ -182,8 +168,6 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
     except PackageNotFoundError:
         return name, None, None, None
 
-    declared_name = package.metadata["Name"] or name
-    declared_repo = _metadata_repository(package)
     direct_url = package.read_text("direct_url.json")
     try:
         origin = json.loads(direct_url) if direct_url else {}
@@ -192,18 +176,14 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
 
     commit = (origin.get("vcs_info") or {}).get("commit_id")
     if commit:
-        # What was installed, which for a fork is not the repository the metadata declares.
-        installed_from = origin.get("url", "")
-        repository = _repository_iri(installed_from) if installed_from else declared_repo
-        return declared_name, package.version, commit, repository
+        return package.name, package.version, commit, _repository_iri(origin["url"])
 
     parsed = urlsplit(origin.get("url", ""))
     # A non-editable install is a copy, so its source directory need not still match.
     if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
         path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
-        revision, repository = _git_source(Path(url2pathname(path)))
-        return declared_name, package.version, revision, repository or declared_repo
-    return declared_name, package.version, None, declared_repo
+        return package.name, package.version, *_git_source(Path(url2pathname(path)))
+    return package.name, package.version, None, None
 
 
 def load_pkg_prov(
