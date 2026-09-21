@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
+import re
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +11,7 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
+    get_pkg_prov,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
@@ -34,6 +36,7 @@ SAMPLING = URIRef(f"{URI_TEST}/sampling")
 RUN = URIRef(f"{URI_TEST}/run")
 LOG = URIRef(f"{URI_TEST}/run/log")
 SHACL = {URL_MM_PROV_SHACL: "turtle", URL_MM_PROV_EXT_SHACL: "turtle"}
+REVISION = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
 
 class ProvTest(unittest.TestCase):
@@ -65,6 +68,22 @@ class ProvTest(unittest.TestCase):
             self.graph,
         )
         check_shacl_constraints(self.graph, SHACL)
+
+    def test_pkg_prov_describes_an_installed_package(self):
+        version, revision, repository = get_pkg_prov("rdf_utils")
+        self.assertIsNotNone(version)
+        # A wheel install records no source, so only the shape of a revision is guaranteed.
+        if revision is not None:
+            self.assertRegex(revision, REVISION)
+        self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
+        installed = URIRef(f"{URI_TEST}/rdf-utils")
+        load_pkg_prov(self.graph, installed, "rdf-utils", version, revision, repository)
+        self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
+        self.assertIn((installed, SDO.codeRepository, URIRef(repository)), self.graph)
+        check_shacl_constraints(self.graph, SHACL)
+
+    def test_pkg_prov_of_a_package_that_is_not_installed(self):
+        self.assertEqual(get_pkg_prov("rdf-utils-no-such-distribution"), (None, None, None))
 
     def test_transformation(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)

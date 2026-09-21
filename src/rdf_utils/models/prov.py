@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: MPL-2.0
 """Record provenance in a graph with the PROV-O terms and the secoro prov extension."""
 
+import json
 from collections.abc import Iterable
 from datetime import datetime
+from importlib.metadata import Distribution, PackageNotFoundError, distribution
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
+from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
@@ -125,6 +129,86 @@ def add_activity(
     graph.add((activity_id, PROV.startedAtTime, Literal(started)))
     if ended is not None:
         graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
+
+
+def _repository_iri(url: str) -> str:
+    # git config keeps an scp-style remote, git@host:owner/repo, verbatim; it is not an IRI.
+    if "://" not in url:
+        host, sep, path = url.partition(":")
+        # A one-letter host is a Windows drive, and a leading slash means a port or a path.
+        if sep and len(host) > 1 and not path.startswith("/"):
+            url = f"https://{host.rpartition('@')[2]}/{path}"
+    return url.removesuffix(".git")
+
+
+def _git_source(path: Path) -> tuple[str | None, str | None]:
+    try:
+        repo = Repo(path, search_parent_directories=True)
+        # A repository without a commit has no HEAD to read.
+        commit = repo.head.commit.hexsha
+    except (InvalidGitRepositoryError, NoSuchPathError, ValueError):
+        return None, None
+    if repo.is_dirty(untracked_files=True):
+        commit = f"{commit}-dirty"
+    remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
+    return commit, _repository_iri(remote) if remote else None
+
+
+def _metadata_repository(package: Distribution) -> str | None:
+    urls = {}
+    for entry in package.metadata.get_all("Project-URL") or ():
+        label, _, url = entry.partition(",")
+        urls[label.strip().lower()] = url.strip()
+    home_page = package.metadata.get("Home-page")
+    if home_page:
+        urls.setdefault("homepage", home_page)
+    for key in ("repository", "source", "homepage"):
+        if key in urls:
+            return urls[key].removesuffix(".git")
+    return None
+
+
+def get_pkg_prov(name: str) -> tuple[str | None, str | None, str | None]:
+    """What `load_pkg_prov` records about an installed package, read off the installation.
+
+    Parameters:
+        name: distribution name of the package, e.g. `rdf_utils`
+
+    Returns:
+        the version, None when the package is not installed; the revision, None unless the
+        installation records one, an editable install reporting its worktree HEAD suffixed
+        `-dirty` when that worktree has uncommitted or untracked changes; and the repository,
+        taken from the installation itself where it names one and from the package metadata
+        otherwise, None when neither does
+    """
+    try:
+        package = distribution(name)
+    except PackageNotFoundError:
+        return None, None, None
+
+    declared = _metadata_repository(package)
+    direct_url = package.read_text("direct_url.json")
+    if not direct_url:
+        return package.version, None, declared
+    try:
+        origin = json.loads(direct_url)
+    except json.JSONDecodeError:
+        return package.version, None, declared
+
+    commit = (origin.get("vcs_info") or {}).get("commit_id")
+    if commit:
+        # What was installed, which for a fork is not the repository the metadata declares.
+        installed_from = origin.get("url", "")
+        repository = _repository_iri(installed_from) if installed_from else declared
+        return package.version, commit, repository
+
+    parsed = urlsplit(origin.get("url", ""))
+    # A non-editable install is a copy, so its source directory need not still match.
+    if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
+        path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
+        revision, repository = _git_source(Path(url2pathname(path)))
+        return package.version, revision, repository or declared
+    return package.version, None, declared
 
 
 def load_pkg_prov(
