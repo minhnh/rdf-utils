@@ -11,6 +11,7 @@ from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
+    _path_from_file_url,
     _repository_iri,
     add_agent,
     add_entity,
@@ -78,7 +79,7 @@ class ProvTest(unittest.TestCase):
         name, version, revision, repository = get_pkg_info("rdf_utils")
         self.assertEqual(name, "rdf_utils")
         self.assertIsNotNone(version)
-        # A wheel install, as in CI, records no source to read either from.
+        # Only an editable or a git install, not CI's `pip install .`, has a source to read.
         if revision is not None:
             self.assertRegex(revision, REVISION)
         if repository is not None:
@@ -96,24 +97,32 @@ class ProvTest(unittest.TestCase):
         self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
         self.assertEqual(get_git_info(Path("/")), (None, None))
 
-    def test_pkg_info_of_an_editable_install(self):
+    def test_pkg_info_of_an_install_from_a_checkout(self):
         checkout = Path(__file__).parent
-        package = Mock(version="0.0.1")
-        package.name = "rdf_utils"
-        package.read_text.return_value = json.dumps(
-            {"url": checkout.as_uri(), "dir_info": {"editable": True}}
-        )
         revision, repository = get_git_info(checkout)
-        with patch("rdf_utils.models.prov.distribution", return_value=package):
-            info = get_pkg_info("rdf_utils")
-        self.assertEqual(info, ("rdf_utils", revision, revision, repository))
+        for editable, source in [(True, (revision, repository)), (False, (None, None))]:
+            with self.subTest(editable=editable):
+                package = Mock(version="0.0.1")
+                package.name = "rdf_utils"
+                package.read_text.return_value = json.dumps(
+                    {"url": checkout.as_uri(), "dir_info": {"editable": editable}}
+                )
+                with patch("rdf_utils.models.prov.distribution", return_value=package):
+                    info = get_pkg_info("rdf_utils")
+                self.assertEqual(info, ("rdf_utils", "0.0.1", *source))
+
+    def test_path_from_file_url(self):
+        path = Path("/home/user/my repo/ü").absolute()
+        self.assertEqual(_path_from_file_url(path.as_uri()), path)
 
     def test_repository_iri_of_remotes(self):
         for remote, iri in [
             ("git@github.com:minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
             ("git@host:/srv/git/repo.git", "ssh://git@host/srv/git/repo"),
             ("https://github.com/minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
-            ("C:/src/repo", "C:/src/repo"),
+            ("file:///srv/git/repo.git", "file:///srv/git/repo.git"),
+            ("/srv/git/repo.git", "file:///srv/git/repo.git"),
+            ("/srv/a:b/repo", "file:///srv/a%3Ab/repo"),
         ]:
             self.assertEqual(_repository_iri(remote), iri)
 

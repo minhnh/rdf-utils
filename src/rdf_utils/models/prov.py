@@ -2,6 +2,7 @@
 """Record provenance in a graph with the PROV-O terms and the secoro prov extension."""
 
 import json
+import sys
 from collections.abc import Iterable
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, distribution
@@ -132,16 +133,24 @@ def add_activity(
 
 
 def _repository_iri(url: str) -> str:
-    # git config keeps an scp-style remote, git@host:owner/repo, verbatim; it is not an IRI.
-    if "://" not in url:
-        host, sep, path = url.partition(":")
-        # A one-letter host is a Windows drive; an absolute path is exact only over ssh.
-        if sep and len(host) > 1:
-            if path.startswith("/"):
-                url = f"ssh://{host}{path}"
-            else:
-                url = f"https://{host.rpartition('@')[2]}/{path}"
-    return url.removesuffix(".git")
+    if "://" in url:
+        return url if url.startswith("file:") else url.removesuffix(".git")
+    host, sep, path = url.partition(":")
+    # git reads [user@]host:path as scp syntax only with no slash before the colon (git-clone(1)).
+    if not sep or "/" in host or len(host) == 1:
+        return Path(url).resolve().as_uri()
+    if path.startswith("/"):
+        return f"ssh://{host}{path}".removesuffix(".git")
+    # A forge's git@host:owner/repo is served over https at the same path.
+    return f"https://{host.rpartition('@')[2]}/{path}".removesuffix(".git")
+
+
+def _path_from_file_url(url: str) -> Path:
+    if sys.version_info >= (3, 13):
+        return Path.from_uri(url)
+    # Before 3.13 a file URL is decoded by hand: %20 escapes, and a host means a Windows share.
+    parsed = urlsplit(url)
+    return Path(url2pathname(f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path))
 
 
 def get_git_info(path: Path) -> tuple[str | None, str | None]:
@@ -172,30 +181,30 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
         name: distribution name of the package, e.g. `rdf_utils`
 
     Returns:
-        Name, version, revision and repository, in the order `load_pkg_prov` takes them;
-        an editable install's version is its checkout's revision
+        Name, version, revision and repository, in the order `load_pkg_prov` takes them
     """
     try:
         package = distribution(name)
     except PackageNotFoundError:
         return name, None, None, None
 
-    direct_url = package.read_text("direct_url.json")
-    try:
-        origin = json.loads(direct_url) if direct_url else {}
-    except json.JSONDecodeError:
-        origin = {}
+    # PEP 610: pip records where a package was installed from, if not from an index.
+    origin = json.loads(package.read_text("direct_url.json") or "{}")
 
-    commit = (origin.get("vcs_info") or {}).get("commit_id")
-    if commit:
-        return package.name, package.version, commit, _repository_iri(origin["url"])
+    # dir_info, editable: `pip install -e <path>` or `-e git+<url>`; the checkout is the code.
+    if origin.get("dir_info", {}).get("editable"):
+        return package.name, package.version, *get_git_info(_path_from_file_url(origin["url"]))
 
-    parsed = urlsplit(origin.get("url", ""))
-    # A non-editable install is a copy, so its source directory need not still match.
-    if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
-        path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
-        revision, repository = get_git_info(Path(url2pathname(path)))
-        return package.name, revision or package.version, revision, repository
+    # vcs_info: installed, not editable, from a VCS URL, `pip install git+<url>[@<ref>]`.
+    if "vcs_info" in origin:
+        return (
+            package.name,
+            package.version,
+            origin["vcs_info"]["commit_id"],
+            _repository_iri(origin["url"]),
+        )
+
+    # An index install, or a copy of a directory whose checkout may have moved on since.
     return package.name, package.version, None, None
 
 
