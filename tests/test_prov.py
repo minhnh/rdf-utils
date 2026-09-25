@@ -103,10 +103,10 @@ class ProvTest(unittest.TestCase):
         package.read_text.return_value = json.dumps(
             {"url": checkout.as_uri(), "dir_info": {"editable": True}}
         )
+        revision, repository = get_git_info(checkout)
         with patch("rdf_utils.models.prov.distribution", return_value=package):
-            name, version, revision, repository = get_pkg_info("rdf_utils")
-        self.assertEqual((revision, repository), get_git_info(checkout))
-        self.assertEqual(version, revision)
+            info = get_pkg_info("rdf_utils")
+        self.assertEqual(info, ("rdf_utils", revision, revision, repository))
 
     def test_repository_iri_of_remotes(self):
         for remote, iri in [
