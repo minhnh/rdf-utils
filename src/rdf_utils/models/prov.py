@@ -135,9 +135,12 @@ def _repository_iri(url: str) -> str:
     # git config keeps an scp-style remote, git@host:owner/repo, verbatim; it is not an IRI.
     if "://" not in url:
         host, sep, path = url.partition(":")
-        # A one-letter host is a Windows drive, and a leading slash means a port or a path.
-        if sep and len(host) > 1 and not path.startswith("/"):
-            url = f"https://{host.rpartition('@')[2]}/{path}"
+        # A one-letter host is a Windows drive; an absolute path is exact only over ssh.
+        if sep and len(host) > 1:
+            if path.startswith("/"):
+                url = f"ssh://{host}{path}"
+            else:
+                url = f"https://{host.rpartition('@')[2]}/{path}"
     return url.removesuffix(".git")
 
 
@@ -169,7 +172,8 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
         name: distribution name of the package, e.g. `rdf_utils`
 
     Returns:
-        Name, version, revision and repository, in the order `load_pkg_prov` takes them
+        Name, version, revision and repository, in the order `load_pkg_prov` takes them;
+        an editable install's version is its checkout's revision
     """
     try:
         package = distribution(name)
@@ -190,7 +194,8 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
     # A non-editable install is a copy, so its source directory need not still match.
     if (origin.get("dir_info") or {}).get("editable") and parsed.scheme == "file":
         path = f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
-        return package.name, package.version, *get_git_info(Path(url2pathname(path)))
+        revision, repository = get_git_info(Path(url2pathname(path)))
+        return package.name, revision or package.version, revision, repository
     return package.name, package.version, None, None
 
 
