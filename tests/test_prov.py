@@ -1,15 +1,23 @@
 # SPDX-License-Identifier: MPL-2.0
+import json
+import re
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from rdflib import RDF, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
+    _path_from_file_url,
+    _repository_iri,
     add_agent,
     add_entity,
     add_file_entity,
+    get_git_info,
+    get_pkg_info,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
@@ -34,6 +42,7 @@ SAMPLING = URIRef(f"{URI_TEST}/sampling")
 RUN = URIRef(f"{URI_TEST}/run")
 LOG = URIRef(f"{URI_TEST}/run/log")
 SHACL = {URL_MM_PROV_SHACL: "turtle", URL_MM_PROV_EXT_SHACL: "turtle"}
+REVISION = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
 
 class ProvTest(unittest.TestCase):
@@ -65,6 +74,61 @@ class ProvTest(unittest.TestCase):
             self.graph,
         )
         check_shacl_constraints(self.graph, SHACL)
+
+    def test_pkg_info_of_an_installed_package(self):
+        name, version, revision, repository = get_pkg_info("rdf_utils")
+        self.assertEqual(name, "rdf_utils")
+        self.assertIsNotNone(version)
+        # Only an editable or a git install, not CI's `pip install .`, has a source to read.
+        if revision is not None:
+            self.assertRegex(revision, REVISION)
+        if repository is not None:
+            self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
+        installed = URIRef(f"{URI_TEST}/rdf-utils")
+        load_pkg_prov(self.graph, installed, name, version, revision, repository)
+        self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
+        if repository is not None:
+            self.assertIn((installed, SDO.codeRepository, URIRef(repository)), self.graph)
+        check_shacl_constraints(self.graph, SHACL)
+
+    def test_git_info_of_a_checkout_and_of_a_path_outside_one(self):
+        revision, repository = get_git_info(Path(__file__).parent)
+        self.assertRegex(revision, REVISION)
+        self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
+        self.assertEqual(get_git_info(Path("/")), (None, None))
+
+    def test_pkg_info_of_an_install_from_a_checkout(self):
+        checkout = Path(__file__).parent
+        revision, repository = get_git_info(checkout)
+        for editable, source in [(True, (revision, repository)), (False, (None, None))]:
+            with self.subTest(editable=editable):
+                package = Mock(version="0.0.1")
+                package.name = "rdf_utils"
+                package.read_text.return_value = json.dumps(
+                    {"url": checkout.as_uri(), "dir_info": {"editable": editable}}
+                )
+                with patch("rdf_utils.models.prov.distribution", return_value=package):
+                    info = get_pkg_info("rdf_utils")
+                self.assertEqual(info, ("rdf_utils", "0.0.1", *source))
+
+    def test_path_from_file_url(self):
+        path = Path("/home/user/my repo/ü").absolute()
+        self.assertEqual(_path_from_file_url(path.as_uri()), path)
+
+    def test_repository_iri_of_remotes(self):
+        for remote, iri in [
+            ("git@github.com:minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
+            ("git@host:/srv/git/repo.git", "ssh://git@host/srv/git/repo"),
+            ("https://github.com/minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
+            ("file:///srv/git/repo.git", "file:///srv/git/repo.git"),
+            ("/srv/git/repo.git", "file:///srv/git/repo.git"),
+            ("/srv/a:b/repo", "file:///srv/a%3Ab/repo"),
+        ]:
+            self.assertEqual(_repository_iri(remote), iri)
+
+    def test_pkg_info_of_a_package_that_is_not_installed(self):
+        missing = "rdf-utils-no-such-distribution"
+        self.assertEqual(get_pkg_info(missing), (missing, None, None, None))
 
     def test_transformation(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)
