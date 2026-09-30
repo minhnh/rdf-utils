@@ -161,3 +161,6 @@ cython_debug/
 
 # vim
 *.swp
+
+# generated version file
+/src/rdf_utils/_version.py
