@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from rdflib import RDF, Graph, Literal, URIRef
+from rdflib import RDF, XSD, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
@@ -16,16 +16,20 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
+    add_relative_location,
     get_git_info,
     get_pkg_info,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
     load_transformation_prov,
+    resolve_location,
 )
 from rdf_utils.models.vocab import (
+    URI_PROV_EXT_PRED_REL_PATH,
     URI_PROV_EXT_TYPE_EXECUTION,
     URI_PROV_EXT_TYPE_GENERALIZATION,
+    URI_PROV_EXT_TYPE_RELATIVE_LOCATION,
     URI_PROV_EXT_TYPE_TRANSFORMATION,
 )
 from rdf_utils.namespace import URL_MM_PROV_EXT_SHACL, URL_MM_PROV_SHACL, URL_SECORO_M
@@ -41,6 +45,7 @@ TRANSFORM = URIRef(f"{URI_TEST}/transform")
 SAMPLING = URIRef(f"{URI_TEST}/sampling")
 RUN = URIRef(f"{URI_TEST}/run")
 LOG = URIRef(f"{URI_TEST}/run/log")
+LOG_LOCATION = URIRef(f"{URI_TEST}/run/log-location")
 SHACL = {URL_MM_PROV_SHACL: "turtle", URL_MM_PROV_EXT_SHACL: "turtle"}
 REVISION = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
@@ -196,6 +201,71 @@ class ProvTest(unittest.TestCase):
             with self.subTest(location=location):
                 add_file_entity(self.graph, LOG, location)
                 self.assertIn((LOG, PROV.atLocation, URIRef(location)), self.graph)
+
+    def test_relative_location(self):
+        # root: (given, IRI); relative: (given path, stored rel-path); resolved: (IRI, path)
+        cases = {
+            "path root": {
+                "root": ("/tmp/generations", "file:///tmp/generations/"),
+                "relative": ("run/1/frames.log", "run/1/frames.log"),
+                "resolved": (
+                    "file:///tmp/generations/run/1/frames.log",
+                    "/tmp/generations/run/1/frames.log",
+                ),
+            },
+            "iri root": {
+                "root": (URIRef("file:///tmp/generations/"), "file:///tmp/generations/"),
+                "relative": ("run/1/frames.log", "run/1/frames.log"),
+                "resolved": (
+                    "file:///tmp/generations/run/1/frames.log",
+                    "/tmp/generations/run/1/frames.log",
+                ),
+            },
+            "spaces and percent": {
+                "root": ("/tmp/gen data", "file:///tmp/gen%20data/"),
+                "relative": ("run 1/50% load.log", "run%201/50%25%20load.log"),
+                "resolved": (
+                    "file:///tmp/gen%20data/run%201/50%25%20load.log",
+                    "/tmp/gen data/run 1/50% load.log",
+                ),
+            },
+        }
+        for name, case in cases.items():
+            root, root_iri = case["root"]
+            rel_path, reference = case["relative"]
+            resolved, path = case["resolved"]
+            with self.subTest(name):
+                graph = Graph()
+                add_relative_location(graph, LOG_LOCATION, rel_path, root)
+                add_file_entity(graph, LOG, LOG_LOCATION)
+                self.assertIn((LOG_LOCATION, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION), graph)
+                self.assertIn((LOG_LOCATION, PROV.atLocation, URIRef(root_iri)), graph)
+                self.assertIn((URIRef(root_iri), RDF.type, PROV.Location), graph)
+                self.assertIn(
+                    (LOG_LOCATION, URI_PROV_EXT_PRED_REL_PATH, Literal(reference, datatype=XSD.anyURI)),
+                    graph,
+                )
+                self.assertEqual(resolve_location(graph, LOG), URIRef(resolved))
+                self.assertEqual(_path_from_file_url(resolved), Path(path))
+                check_shacl_constraints(graph, SHACL)
+
+    def test_relative_location_under_a_relative_root(self):
+        run = URIRef(f"{URI_TEST}/run-location")
+        add_relative_location(self.graph, run, "run/1", URIRef("file:///tmp/generations/"))
+        add_relative_location(self.graph, LOG_LOCATION, "frames.log", run)
+        add_file_entity(self.graph, LOG, LOG_LOCATION)
+        self.assertEqual(
+            resolve_location(self.graph, LOG), URIRef("file:///tmp/generations/run/1/frames.log")
+        )
+
+    def test_location_without_root_resolves_to_itself(self):
+        add_file_entity(self.graph, LOG, "/tmp/run/frames.log")
+        self.assertEqual(resolve_location(self.graph, LOG), URIRef("file:///tmp/run/frames.log"))
+        self.assertIsNone(resolve_location(self.graph, MODEL))
+
+    def test_relative_location_rejects_an_absolute_path(self):
+        with self.assertRaises(ValueError):
+            add_relative_location(self.graph, LOG_LOCATION, "/tmp/run/frames.log", "/tmp/gen")
 
     def test_running_activity_has_no_end(self):
         load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0)
