@@ -5,9 +5,6 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "vcs"
 
-[tool.hatch.build.hooks.vcs]
-version-file = "src/rdf_utils/_version.py"
-
 [project]
 name = "rdf_utils"
 dynamic = ["version"]

@@ -6,17 +6,19 @@ import sys
 from collections.abc import Iterable
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError, distribution
-from pathlib import Path
-from urllib.parse import urlsplit
+from pathlib import Path, PurePath
+from urllib.parse import quote, urljoin, urlsplit
 from urllib.request import url2pathname
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
-from rdflib import RDF, Graph, Literal, URIRef
+from rdflib import RDF, XSD, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO
 
 from rdf_utils.models.vocab import (
+    URI_PROV_EXT_PRED_REL_PATH,
     URI_PROV_EXT_TYPE_EXECUTION,
     URI_PROV_EXT_TYPE_GENERALIZATION,
+    URI_PROV_EXT_TYPE_RELATIVE_LOCATION,
     URI_PROV_EXT_TYPE_TRANSFORMATION,
 )
 
@@ -53,7 +55,8 @@ def add_file_entity(
     Parameters:
         graph: RDF graph to add the file to
         file_id: URI of the file
-        location: file path or IRI; a path is stored as a `file:` IRI in `prov:atLocation`
+        location: file path or IRI, e.g. a `prov-ext:RelativeLocation` node; a path is stored as
+            a `file:` IRI in `prov:atLocation`
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
         generated_at: time the file was complete, stored as `prov:generatedAtTime`
         modified_at: time the file last changed, stored as `dcterms:modified`
@@ -72,6 +75,55 @@ def add_file_entity(
         graph.add((file_id, DCTERMS.modified, Literal(modified_at)))
     if fmt is not None:
         graph.add((file_id, DCTERMS.format, Literal(fmt)))
+
+
+def add_relative_location(
+    graph: Graph, location_id: URIRef, rel_path: str | PurePath, root: str | URIRef
+) -> None:
+    """Add a `prov-ext:RelativeLocation`: a path under a root directory, the only machine path.
+
+    Parameters:
+        graph: RDF graph to add the location to
+        location_id: URI of the relative location, for a file entity's `prov:atLocation`
+        rel_path: file path from the root; stored percent-encoded as an RFC 3986 relative-path
+            reference in `prov-ext:rel-path`, so spaces and `%` survive resolution
+        root: directory path, or the IRI of the location the path is relative to: a directory
+            IRI ending in `/` or another relative location; stored as a `prov:Location`
+
+    Raises:
+        ValueError: when `rel_path` is absolute
+    """
+    if PurePath(rel_path).is_absolute():
+        raise ValueError(f"'{rel_path}' is not a relative path -- it is absolute")
+    # RFC 3986 drops a base's last segment when resolving, so a directory's IRI ends in '/'.
+    root_iri = root if isinstance(root, URIRef) else URIRef(f"{Path(root).resolve().as_uri()}/")
+    graph.add((root_iri, RDF.type, PROV.Location))
+    for type_id in (URI_PROV_EXT_TYPE_RELATIVE_LOCATION, PROV.Location, PROV.Entity):
+        graph.add((location_id, RDF.type, type_id))
+    reference = quote(PurePath(rel_path).as_posix(), safe="/")
+    graph.add((location_id, URI_PROV_EXT_PRED_REL_PATH, Literal(reference, datatype=XSD.anyURI)))
+    graph.add((location_id, PROV.atLocation, root_iri))
+
+
+def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
+    """The IRI a node is `prov:atLocation`, or None when it has no location.
+
+    An IRI location is returned as is. A `prov-ext:RelativeLocation` resolves its
+    `prov-ext:rel-path` against its own location, as an RFC 3986 reference, so a root that is
+    itself relative resolves too. Any other location, e.g. a blank node or literal, raises a
+    ValueError.
+    """
+    location = graph.value(node, PROV.atLocation)
+    if location is None:
+        return None
+    if (location, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION) in graph:
+        root = str(resolve_location(graph, location))
+        # A root is a directory; RFC 3986 would otherwise drop its last segment.
+        root = root if root.endswith("/") else f"{root}/"
+        return URIRef(urljoin(root, str(graph.value(location, URI_PROV_EXT_PRED_REL_PATH))))
+    if isinstance(location, URIRef):
+        return location
+    raise ValueError(f"location '{location}' of '{node}' is neither an IRI nor a relative location")
 
 
 def add_agent(
