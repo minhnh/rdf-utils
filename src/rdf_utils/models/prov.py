@@ -106,14 +106,22 @@ def add_relative_location(
 
 
 def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
-    """The absolute IRI a node is `prov:atLocation`, or None when it has no location.
+    """The IRI a node is `prov:atLocation`, or None when it has no location.
 
-    A `prov-ext:RelativeLocation` resolves its `prov-ext:rel-path` against its own location, as an
-    RFC 3986 reference, so a root that is itself relative resolves too.
+    An IRI location is returned as is. A `prov-ext:RelativeLocation` resolves its
+    `prov-ext:rel-path` against its own location, as an RFC 3986 reference, so a root that is
+    itself relative resolves too. Any other location, e.g. a blank node or literal, raises a
+    ValueError.
     """
     location = graph.value(node, PROV.atLocation)
+    if location is None:
+        return None
     if (location, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION) not in graph:
-        return location
+        if isinstance(location, URIRef):
+            return location
+        raise ValueError(
+            f"location '{location}' of '{node}' is neither an IRI nor a relative location"
+        )
     root = str(resolve_location(graph, location))
     # A root is a directory; RFC 3986 would otherwise drop its last segment.
     root = root if root.endswith("/") else f"{root}/"
