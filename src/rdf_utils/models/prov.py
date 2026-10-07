@@ -116,16 +116,14 @@ def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
     location = graph.value(node, PROV.atLocation)
     if location is None:
         return None
-    if (location, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION) not in graph:
-        if isinstance(location, URIRef):
-            return location
-        raise ValueError(
-            f"location '{location}' of '{node}' is neither an IRI nor a relative location"
-        )
-    root = str(resolve_location(graph, location))
-    # A root is a directory; RFC 3986 would otherwise drop its last segment.
-    root = root if root.endswith("/") else f"{root}/"
-    return URIRef(urljoin(root, str(graph.value(location, URI_PROV_EXT_PRED_REL_PATH))))
+    if (location, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION) in graph:
+        root = str(resolve_location(graph, location))
+        # A root is a directory; RFC 3986 would otherwise drop its last segment.
+        root = root if root.endswith("/") else f"{root}/"
+        return URIRef(urljoin(root, str(graph.value(location, URI_PROV_EXT_PRED_REL_PATH))))
+    if isinstance(location, URIRef):
+        return location
+    raise ValueError(f"location '{location}' of '{node}' is neither an IRI nor a relative location")
 
 
 def add_agent(
