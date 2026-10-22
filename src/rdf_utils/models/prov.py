@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: MPL-2.0
 """Record provenance in a graph with the PROV-O terms and the secoro prov extension."""
 
+import base64
+import hashlib
 import json
+import os
 import sys
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path, PurePath
 from urllib.parse import quote, urljoin, urlsplit
 from urllib.request import url2pathname
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 from rdflib import RDF, XSD, Graph, Literal, URIRef
@@ -40,41 +44,77 @@ def add_entity(graph: Graph, entity_id: URIRef) -> None:
     graph.add((entity_id, RDF.type, PROV.Entity))
 
 
+def get_ni_iri(path: str | Path, sha256: str | None = None) -> URIRef:
+    """The IRI of a file's content, named by its hash: the same bytes have the same name.
+
+    Parameters:
+        path: the file
+        sha256: hex SHA-256 digest of its bytes, when they are not read from PATH
+
+    Returns:
+        An RFC 6920 named-information IRI, `ni:///sha-256;<digest>`, digest base64url unpadded
+    """
+    digest = bytes.fromhex(sha256) if sha256 else hashlib.sha256(Path(path).read_bytes()).digest()
+    return URIRef(f"ni:///sha-256;{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}")
+
+
 def add_file_entity(
     graph: Graph,
-    file_id: URIRef,
-    location: str | URIRef,
+    root: str | Path | None,
+    path: str | Path,
     generated_by: URIRef | None = None,
     generated_at: datetime | None = None,
+    sha256: str | None = None,
     modified_at: datetime | None = None,
     fmt: str | None = None,
     additional_types: Iterable[URIRef] = (),
-) -> None:
-    """Add a file as a `prov:Entity` at a location, e.g. a log a run generated.
+) -> URIRef:
+    """Add the file at PATH as a `prov:Entity` named by its content, the `get_ni_iri` of its bytes.
+
+    It is located by its path in a `prov-ext:RelativeLocation` under ROOT, named by the UUIDv5 of
+    its name and that path: a location is a `prov:Entity`, which the PROV shapes require to be an
+    IRI, and one file at one place is one location however often it is added.
 
     Parameters:
         graph: RDF graph to add the file to
-        file_id: URI of the file
-        location: file path or IRI, e.g. a `prov-ext:RelativeLocation` node; a path is stored as
-            a `file:` IRI in `prov:atLocation`
+        root: directory the file is located under; None locates it at PATH as given, a path or
+            an IRI
+        path: the file, relative to ROOT or absolute
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
-        generated_at: time the file was complete, stored as `prov:generatedAtTime`
+        generated_at: time the file was complete, stored as `prov:generatedAtTime`; with
+            GENERATED_BY and none given, the file's modification time when its bytes are read
+        sha256: hex SHA-256 digest of its bytes, for a file that is not read here
         modified_at: time the file last changed, stored as `dcterms:modified`
         fmt: media type of the file, stored as `dcterms:format`
         additional_types: its kinds besides `prov:Entity`
+
+    Returns:
+        URI of the file
     """
+    if root is not None:
+        path = Path(root, path).resolve()
+    file_id = get_ni_iri(path, sha256)
+    if root is None:
+        location = _location_iri(path)
+    else:
+        rel_path = PurePath(os.path.relpath(path, Path(root).resolve())).as_posix()
+        location = URIRef(uuid5(uuid5(NAMESPACE_URL, str(file_id)), rel_path).urn)
+        add_relative_location(graph, location, rel_path, root)
     add_entity(graph, file_id)
     for type_id in additional_types:
         graph.add((file_id, RDF.type, type_id))
-    graph.add((file_id, PROV.atLocation, _location_iri(location)))
+    graph.add((file_id, PROV.atLocation, location))
     if generated_by is not None:
         graph.add((file_id, PROV.wasGeneratedBy, generated_by))
+        if generated_at is None and sha256 is None:
+            generated_at = datetime.fromtimestamp(Path(path).stat().st_mtime, UTC)
     if generated_at is not None:
         graph.add((file_id, PROV.generatedAtTime, Literal(generated_at)))
     if modified_at is not None:
         graph.add((file_id, DCTERMS.modified, Literal(modified_at)))
     if fmt is not None:
         graph.add((file_id, DCTERMS.format, Literal(fmt)))
+    return file_id
 
 
 def add_relative_location(
@@ -103,6 +143,18 @@ def add_relative_location(
     reference = quote(PurePath(rel_path).as_posix(), safe="/")
     graph.add((location_id, URI_PROV_EXT_PRED_REL_PATH, Literal(reference, datatype=XSD.anyURI)))
     graph.add((location_id, PROV.atLocation, root_iri))
+
+
+def create_bundle(agent_id: URIRef) -> Graph:
+    """A named graph for one tool's provenance: a `prov:Bundle` named `urn:uuid:`, attributed to it.
+
+    Parameters:
+        agent_id: URI of the agent that writes the bundle, stored as `prov:wasAttributedTo`
+    """
+    bundle = Graph(identifier=URIRef(uuid4().urn))
+    bundle.add((bundle.identifier, RDF.type, PROV.Bundle))
+    bundle.add((bundle.identifier, PROV.wasAttributedTo, agent_id))
+    return bundle
 
 
 def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
