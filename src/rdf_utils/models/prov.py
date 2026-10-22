@@ -54,7 +54,12 @@ def get_ni_iri(path: str | Path, sha256: str | None = None) -> URIRef:
     Returns:
         An RFC 6920 named-information IRI, `ni:///sha-256;<digest>`, digest base64url unpadded
     """
-    digest = bytes.fromhex(sha256) if sha256 else hashlib.sha256(Path(path).read_bytes()).digest()
+    if sha256:
+        digest = bytes.fromhex(sha256)
+    else:
+        # Streamed: a run's log or bag can be larger than memory.
+        with Path(path).open("rb") as file:
+            digest = hashlib.file_digest(file, "sha256").digest()
     return URIRef(f"ni:///sha-256;{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}")
 
 
