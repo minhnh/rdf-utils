@@ -28,4 +28,11 @@ class DatasetFormat(StrEnum):
     @property
     def extension(self) -> str:
         """File extension of the format, without the leading dot."""
-        return {"json-ld": "ld.json", "nquads": "nq", "trig": "trig"}[self.value]
+        return DATASET_FORMAT_EXTENSIONS[self]
+
+
+DATASET_FORMAT_EXTENSIONS = {
+    DatasetFormat.JSON_LD: "ld.json",
+    DatasetFormat.NQUADS: "nq",
+    DatasetFormat.TRIG: "trig",
+}
