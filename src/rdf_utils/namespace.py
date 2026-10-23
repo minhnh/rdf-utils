@@ -6,6 +6,7 @@ from rdflib import Namespace
 URL_SECORO = "https://secorolab.github.io"
 URL_SECORO_MM = f"{URL_SECORO}/metamodels"
 URL_SECORO_M = f"{URL_SECORO}/models"
+URL_SECORO_UNI = "https://secoro.uni-bremen.de"
 URL_COMP_ROB2B = "https://comp-rob2b.github.io"
 
 URL_MM_GEOM_COORD_SECO_JSON = f"{URL_SECORO_MM}/geometry/coordinates.json"
