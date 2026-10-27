@@ -8,7 +8,7 @@ from rdflib.compare import isomorphic
 from rdflib.namespace import PROV, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
-from rdf_utils.models.time import add_numeric_instant, add_wall_instant
+from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
 from rdf_utils.namespace import (
     URL_MM_TIME_JSON,
     URL_MM_TIME_SHACL,
@@ -33,7 +33,7 @@ class TimeTest(unittest.TestCase):
             (TEST.repeated, BNode(), TEST.clock),
             (TEST.otherRun, TEST.otherPosition, TEST.otherClock),
         ):
-            add_numeric_instant(self.graph, instant, position, seconds, clock)
+            add_trs_relative_instant(self.graph, instant, position, seconds, clock)
             self.assertIn((instant, RDF.type, TIME.Instant), self.graph)
             self.assertEqual(self.graph.value(instant, TIME.inTimePosition), position)
             self.assertIn((position, RDF.type, TIME.TimePosition), self.graph)
@@ -64,7 +64,9 @@ class TimeTest(unittest.TestCase):
         before = set(self.graph)
         for seconds in (float("nan"), float("inf"), -float("inf")):
             with self.subTest(seconds=seconds), self.assertRaises(ValueError):
-                add_numeric_instant(self.graph, TEST.instant, TEST.position, seconds, TEST.clock)
+                add_trs_relative_instant(
+                    self.graph, TEST.instant, TEST.position, seconds, TEST.clock
+                )
             self.assertEqual(set(self.graph), before)
         with self.assertRaises(ValueError):
             add_wall_instant(self.graph, TEST.instant, self.stamp.replace(tzinfo=None))
@@ -113,7 +115,7 @@ class TimeTest(unittest.TestCase):
             ],
         }
         actual = Graph().parse(data=json.dumps(document), format="json-ld")
-        add_numeric_instant(self.graph, TEST.instant, TEST.position, 1.5, TEST.clock)
+        add_trs_relative_instant(self.graph, TEST.instant, TEST.position, 1.5, TEST.clock)
         add_wall_instant(self.graph, TEST.wall, self.stamp)
         self.graph.add((TEST.observation, TIME.hasTime, TEST.instant))
         self.assertTrue(isomorphic(actual, self.graph))

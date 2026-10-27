@@ -27,7 +27,7 @@ from rdf_utils.models.prov import (
     load_transformation_prov,
     resolve_location,
 )
-from rdf_utils.models.time import add_numeric_instant, add_wall_instant
+from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
     URI_PROV_EXT_TYPE_EXECUTION,
@@ -213,7 +213,9 @@ class ProvTest(unittest.TestCase):
         clock = URIRef(f"{URI_TEST}/simulation-clock")
         start, end = URIRef(f"{URI_TEST}/runtime-start"), URIRef(f"{URI_TEST}/runtime-end")
         for instant, seconds in ((start, 0.0), (end, 1.0)):
-            add_numeric_instant(self.graph, instant, URIRef(f"{instant}/position"), seconds, clock)
+            add_trs_relative_instant(
+                self.graph, instant, URIRef(f"{instant}/position"), seconds, clock
+            )
         load_execution_prov(self.graph, RUN, [MODEL], PKG, start, end)
         self.assertEqual(self.graph.value(RUN, TIME.hasBeginning), start)
         self.assertEqual(self.graph.value(RUN, TIME.hasEnd), end)
