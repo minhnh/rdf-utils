@@ -5,13 +5,10 @@ from datetime import UTC, datetime, timedelta, timezone
 
 from rdflib import RDF, XSD, BNode, Graph, Literal, Namespace
 from rdflib.compare import isomorphic
-from rdflib.namespace import PROV
+from rdflib.namespace import PROV, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.time import add_numeric_instant, add_wall_instant
-from rdf_utils.namespace import (
-    NS_OWL_TIME as TIME,
-)
 from rdf_utils.namespace import (
     URL_MM_TIME_JSON,
     URL_MM_TIME_SHACL,

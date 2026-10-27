@@ -5,8 +5,7 @@ from datetime import datetime
 from math import isfinite
 
 from rdflib import RDF, XSD, BNode, Graph, Literal, URIRef
-
-from rdf_utils.namespace import NS_OWL_TIME as TIME
+from rdflib.namespace import TIME
 
 
 def add_numeric_instant(

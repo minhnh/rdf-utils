@@ -21,11 +21,9 @@ from rdf_utils.namespace import (
     NS_MM_QUDT_UNIT,
     NS_MM_ROS,
     NS_MM_TC,
-    NS_OWL_TIME,
 )
 
 # Time constraints
-URI_TIME_TYPE_INSTANT = NS_OWL_TIME["Instant"]
 URI_TIME_TYPE_TC = NS_MM_TC["TimeConstraint"]
 URI_TIME_TYPE_BEFORE_EVT = NS_MM_TC["BeforeEventConstraint"]
 URI_TIME_TYPE_AFTER_EVT = NS_MM_TC["AfterEventConstraint"]
