@@ -1,9 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
-"""Record provenance with PROV-O and the secoro extension.
-
-Activity boundaries reference caller-created OWL-Time instants. Use
-``rdf_utils.models.time`` to give them runtime or wall-clock coordinates.
-"""
+"""Record provenance in a graph with the PROV-O terms and the secoro prov extension."""
 
 import base64
 import hashlib
