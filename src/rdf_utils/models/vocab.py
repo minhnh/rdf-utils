@@ -22,6 +22,7 @@ from rdf_utils.namespace import (
     NS_MM_ROS,
     NS_MM_TC,
     NS_OWL_TIME,
+    NS_SPDX_SW,
 )
 
 # Time constraints
@@ -109,6 +110,7 @@ URI_QUDT_PRED_UNIT = NS_MM_QUDT["unit"]
 URI_QUDT_PRED_VALUE = NS_MM_QUDT["value"]
 
 # ROS
+URI_ROS_TYPE_PACKAGE = NS_MM_ROS["Package"]
 URI_ROS_TYPE_TOPIC = NS_MM_ROS["Topic"]
 URI_ROS_TYPE_SERVICE = NS_MM_ROS["Service"]
 URI_ROS_TYPE_ACTION = NS_MM_ROS["Action"]
@@ -281,6 +283,9 @@ URI_PROV_EXT_TYPE_EXECUTION = NS_MM_PROV_EXT["Execution"]
 URI_PROV_EXT_TYPE_ASSURANCE = NS_MM_PROV_EXT["Assurance"]
 URI_PROV_EXT_TYPE_RELATIVE_LOCATION = NS_MM_PROV_EXT["RelativeLocation"]
 URI_PROV_EXT_PRED_REL_PATH = NS_MM_PROV_EXT["rel-path"]
+
+# SPDX software packages
+URI_SPDX_SW_TYPE_PACKAGE = NS_SPDX_SW["Package"]
 
 # Execution Context
 URI_EXEC_TYPE_SYS_RES = NS_MM_EXEC["SystemResource"]
