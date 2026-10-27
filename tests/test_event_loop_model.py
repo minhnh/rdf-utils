@@ -2,6 +2,7 @@
 import unittest
 
 from rdflib import RDF, Graph, URIRef
+from rdflib.namespace import TIME
 
 from rdf_utils.constraints import check_shacl_constraints
 from rdf_utils.models.event_loop import EventLoopModel
@@ -16,7 +17,6 @@ from rdf_utils.models.vocab import (
     URI_EL_TYPE_EVT_REACT,
     URI_EL_TYPE_FLG,
     URI_EL_TYPE_FLG_REACT,
-    URI_TIME_TYPE_INSTANT,
 )
 from rdf_utils.namespace import URL_MM_EL_JSON, URL_MM_EL_SHACL, URL_SECORO_M
 from rdf_utils.resolver import install_resolver
@@ -29,8 +29,8 @@ EVT_LOOP_MODEL_NODES = f"""
 {{
     "@context": [ "{URL_MM_EL_JSON}" ],
     "@graph": [
-        {{ "@id": "{URI_TEST_EL}/event1", "@type": "{URI_TIME_TYPE_INSTANT.toPython()}" }},
-        {{ "@id": "{URI_TEST_EL}/event2", "@type": "{URI_TIME_TYPE_INSTANT.toPython()}" }},
+        {{ "@id": "{URI_TEST_EL}/event1", "@type": "{TIME.Instant.toPython()}" }},
+        {{ "@id": "{URI_TEST_EL}/event2", "@type": "{TIME.Instant.toPython()}" }},
         {{ "@id": "{URI_TEST_EL}/flag1", "@type": "{URI_EL_TYPE_FLG.toPython()}" }},
         {{ "@id": "{URI_TEST_EL}/flag2", "@type": "{URI_EL_TYPE_FLG.toPython()}" }},
         {{ "@id": "{URI_TEST_EL}/evt_reaction", "@type": "{URI_EL_TYPE_EVT_REACT.toPython()}" }},

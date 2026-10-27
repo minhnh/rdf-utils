@@ -8,8 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from git import Repo
 from rdflib import RDF, XSD, Graph, Literal, URIRef
-from rdflib.namespace import DCTERMS, PROV, SDO
+from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
@@ -30,6 +31,7 @@ from rdf_utils.models.prov import (
     load_transformation_prov,
     resolve_location,
 )
+from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
     URI_PROV_EXT_TYPE_EXECUTION,
@@ -38,7 +40,12 @@ from rdf_utils.models.vocab import (
     URI_PROV_EXT_TYPE_TRANSFORMATION,
     URI_SPDX_SW_TYPE_PACKAGE,
 )
-from rdf_utils.namespace import URL_MM_PROV_EXT_SHACL, URL_MM_PROV_SHACL, URL_SECORO_M
+from rdf_utils.namespace import (
+    URL_MM_PROV_EXT_SHACL,
+    URL_MM_PROV_SHACL,
+    URL_MM_TIME_SHACL,
+    URL_SECORO_M,
+)
 from rdf_utils.resolver import install_resolver
 
 URI_TEST = f"{URL_SECORO_M}/tests/prov"
@@ -55,7 +62,11 @@ LOG_LOCATION = URIRef(f"{URI_TEST}/run/log-location")
 # SHA-256 of b"test", as hex and as RFC 6920's unpadded base64url.
 SHA256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 NI_DIGEST = "n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg"
-SHACL = {URL_MM_PROV_SHACL: "turtle", URL_MM_PROV_EXT_SHACL: "turtle"}
+SHACL = {
+    URL_MM_PROV_SHACL: "turtle",
+    URL_MM_PROV_EXT_SHACL: "turtle",
+    URL_MM_TIME_SHACL: "turtle",
+}
 REVISION = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
 
@@ -65,6 +76,10 @@ class ProvTest(unittest.TestCase):
         self.graph = Graph()
         self.t0 = datetime(2026, 9, 18, 10, 0, tzinfo=UTC)
         self.t1 = self.t0 + timedelta(seconds=30)
+        self.start = URIRef(f"{URI_TEST}/start")
+        self.end = URIRef(f"{URI_TEST}/end")
+        add_wall_instant(self.graph, self.start, self.t0)
+        add_wall_instant(self.graph, self.end, self.t1)
         load_pkg_prov(
             self.graph,
             PKG,
@@ -96,8 +111,6 @@ class ProvTest(unittest.TestCase):
         # Only an editable or a git install, not CI's `pip install .`, has a source to read.
         if revision is not None:
             self.assertRegex(revision, REVISION)
-        if repository is not None:
-            self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
         installed = URIRef(f"{URI_TEST}/rdf-utils")
         load_pkg_prov(self.graph, installed, name, version, revision, repository)
         self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
@@ -106,10 +119,26 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_git_info_of_a_checkout_and_of_a_path_outside_one(self):
-        revision, repository = get_git_info(Path(__file__).parent)
-        self.assertRegex(revision, REVISION)
-        self.assertEqual(repository, "https://github.com/minhnh/rdf-utils")
-        self.assertEqual(get_git_info(Path("/")), (None, None))
+        with TemporaryDirectory() as root:
+            checkout = Path(root) / "checkout"
+            with Repo.init(checkout) as repo:
+                source = checkout / "source.txt"
+                source.write_text("test")
+                repo.index.add(["source.txt"])
+                commit = repo.index.commit("Initial commit")
+                self.assertEqual(get_git_info(checkout), (commit.hexsha, None))
+                repo.create_remote("origin", "git@github.com:example/fork.git")
+                nested = checkout / "nested"
+                nested.mkdir()
+                self.assertEqual(
+                    get_git_info(nested), (commit.hexsha, "https://github.com/example/fork")
+                )
+                source.write_text("changed")
+                self.assertEqual(
+                    get_git_info(checkout),
+                    (f"{commit.hexsha}-dirty", "https://github.com/example/fork"),
+                )
+            self.assertEqual(get_git_info(Path(root)), (None, None))
 
     def test_pkg_info_of_an_install_from_a_checkout(self):
         checkout = Path(__file__).parent
@@ -131,9 +160,9 @@ class ProvTest(unittest.TestCase):
 
     def test_repository_iri_of_remotes(self):
         for remote, iri in [
-            ("git@github.com:minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
+            ("git@github.com:example/fork.git", "https://github.com/example/fork"),
             ("git@host:/srv/git/repo.git", "ssh://git@host/srv/git/repo"),
-            ("https://github.com/minhnh/rdf-utils.git", "https://github.com/minhnh/rdf-utils"),
+            ("https://github.com/example/fork.git", "https://github.com/example/fork"),
             ("file:///srv/git/repo.git", "file:///srv/git/repo.git"),
             ("/srv/git/repo.git", "file:///srv/git/repo.git"),
             ("/srv/a:b/repo", "file:///srv/a%3Ab/repo"),
@@ -145,11 +174,14 @@ class ProvTest(unittest.TestCase):
         self.assertEqual(get_pkg_info(missing), (missing, None, None, None))
 
     def test_transformation(self):
-        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.t0, self.t1)
+        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.start, self.end)
         self.assertIn((TRANSFORM, RDF.type, URI_PROV_EXT_TYPE_TRANSFORMATION), self.graph)
         self.assertIn((TRANSFORM, PROV.used, SPEC), self.graph)
         self.assertIn((MODEL, PROV.wasGeneratedBy, TRANSFORM), self.graph)
-        self.assertEqual(self.graph.value(TRANSFORM, PROV.startedAtTime).toPython(), self.t0)
+        self.assertEqual(self.graph.value(TRANSFORM, TIME.hasBeginning), self.start)
+        self.assertEqual(self.graph.value(TRANSFORM, TIME.hasEnd), self.end)
+        self.assertIsNone(self.graph.value(TRANSFORM, PROV.startedAtTime))
+        self.assertIsNone(self.graph.value(TRANSFORM, PROV.endedAtTime))
         check_shacl_constraints(self.graph, SHACL)
 
     def test_bundle_is_a_named_graph_attributed_to_its_tool(self):
@@ -175,27 +207,41 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_transformation_needs_target(self):
-        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [], PKG, self.t0, self.t1)
+        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [], PKG, self.start, self.end)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
 
     def test_used_entities_are_not_typed_by_the_loader(self):
         untyped = URIRef(f"{URI_TEST}/design-node")
-        load_execution_prov(self.graph, RUN, [untyped], PKG, self.t0, self.t1)
+        load_execution_prov(self.graph, RUN, [untyped], PKG, self.start, self.end)
         self.assertNotIn((untyped, RDF.type, PROV.Entity), self.graph)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
 
     def test_sampling(self):
-        load_sampling_prov(self.graph, SAMPLING, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0, self.t1)
+        load_sampling_prov(
+            self.graph, SAMPLING, [MODEL], [SAMPLE], QUANTITY, PKG, self.start, self.end
+        )
         self.assertIn((SAMPLING, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION), self.graph)
         self.assertIn((SAMPLING, PROV.used, QUANTITY), self.graph)
         self.assertIn((SAMPLING, PROV.used, MODEL), self.graph)
         self.assertIn((SAMPLE, PROV.wasGeneratedBy, SAMPLING), self.graph)
         check_shacl_constraints(self.graph, SHACL)
 
+    def test_execution_with_runtime_boundary_instants(self):
+        clock = URIRef(f"{URI_TEST}/simulation-clock")
+        start, end = URIRef(f"{URI_TEST}/runtime-start"), URIRef(f"{URI_TEST}/runtime-end")
+        for instant, seconds in ((start, 0.0), (end, 1.0)):
+            add_trs_relative_instant(
+                self.graph, instant, URIRef(f"{instant}/position"), seconds, clock
+            )
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, start, end)
+        self.assertEqual(self.graph.value(RUN, TIME.hasBeginning), start)
+        self.assertEqual(self.graph.value(RUN, TIME.hasEnd), end)
+        check_shacl_constraints(self.graph, SHACL)
+
     def test_execution_and_log(self):
-        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.start, self.end)
         log = add_file_entity(
             self.graph,
             None,
@@ -216,7 +262,7 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_file_is_named_by_its_content(self):
-        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0, self.t1)
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.start, self.end)
         with TemporaryDirectory() as root:
             (Path(root) / "frames.log").write_bytes(b"test")
             first = add_file_entity(self.graph, root, "frames.log", generated_by=RUN)
@@ -353,8 +399,9 @@ class ProvTest(unittest.TestCase):
             add_relative_location(self.graph, LOG_LOCATION, "/tmp/run/frames.log", "/tmp/gen")
 
     def test_running_activity_has_no_end(self):
-        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.t0)
-        self.assertIsNone(self.graph.value(RUN, PROV.endedAtTime))
+        load_execution_prov(self.graph, RUN, [MODEL], PKG, self.start)
+        self.assertEqual(self.graph.value(RUN, TIME.hasBeginning), self.start)
+        self.assertIsNone(self.graph.value(RUN, TIME.hasEnd))
         check_shacl_constraints(self.graph, SHACL)
 
 

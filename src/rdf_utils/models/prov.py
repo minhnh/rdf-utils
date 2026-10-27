@@ -18,7 +18,7 @@ from xml.etree import ElementTree
 
 from git import InvalidGitRepositoryError, NoSuchPathError, Repo
 from rdflib import RDF, XSD, Graph, Literal, URIRef
-from rdflib.namespace import DCTERMS, PROV, SDO
+from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
@@ -166,10 +166,11 @@ def add_file_entity(
             absolute PATH (`~` expanded) or an IRI, located as given
         path: the file, relative to ROOT or absolute
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
-        generated_at: time the file was complete, stored as `prov:generatedAtTime`; with
-            GENERATED_BY and none given, the file's modification time when its bytes are read
+        generated_at: wall-clock datetime when the file was complete, stored as
+            `prov:generatedAtTime`; with GENERATED_BY and none given, the file's modification
+            time when its bytes are read
         sha256: hex SHA-256 digest of its bytes, for a file that is not read here
-        modified_at: time the file last changed, stored as `dcterms:modified`
+        modified_at: wall-clock datetime when the file last changed, stored as `dcterms:modified`
         fmt: media type of the file, stored as `dcterms:format`
         additional_types: its kinds besides `prov:Entity`
 
@@ -328,12 +329,13 @@ def add_activity(
     additional_types: Iterable[URIRef],
     used: Iterable[URIRef],
     agent_id: URIRef,
-    started: datetime,
-    ended: datetime | None = None,
+    started: URIRef,
+    ended: URIRef | None = None,
 ) -> None:
     """Add a `prov:Activity` of the given kinds: what it used, who ran it and when.
 
-    The used entities are the caller's own nodes and are not typed here.
+    The used entities and boundary instants are caller-owned nodes and are not typed here.
+    Create the instants separately with the helpers in ``rdf_utils.models.time``.
 
     Parameters:
         graph: RDF graph to add the activity to
@@ -341,8 +343,8 @@ def add_activity(
         additional_types: its kinds besides `prov:Activity`, e.g. `URI_PROV_EXT_TYPE_EXECUTION`
         used: URIs of the entities the activity used
         agent_id: URI of the agent the activity is associated with
-        started: start time, stored as `prov:startedAtTime`
-        ended: end time, stored as `prov:endedAtTime`; None for an activity still running
+        started: URI of the start instant, linked with `time:hasBeginning`
+        ended: URI of the end instant, linked with `time:hasEnd`; None while still running
     """
     graph.add((activity_id, RDF.type, PROV.Activity))
     for type_id in additional_types:
@@ -350,9 +352,9 @@ def add_activity(
     for entity_id in used:
         graph.add((activity_id, PROV.used, entity_id))
     graph.add((activity_id, PROV.wasAssociatedWith, agent_id))
-    graph.add((activity_id, PROV.startedAtTime, Literal(started)))
+    graph.add((activity_id, TIME.hasBeginning, started))
     if ended is not None:
-        graph.add((activity_id, PROV.endedAtTime, Literal(ended)))
+        graph.add((activity_id, TIME.hasEnd, ended))
 
 
 def _repository_iri(url: str) -> str:
@@ -464,8 +466,8 @@ def load_transformation_prov(
     sources: Iterable[URIRef],
     targets: Iterable[URIRef],
     pkg_id: URIRef,
-    started: datetime,
-    ended: datetime | None = None,
+    started: URIRef,
+    ended: URIRef | None = None,
 ) -> None:
     """Add a `prov-ext:Transformation` of source entities into target entities.
 
@@ -475,8 +477,8 @@ def load_transformation_prov(
         sources: URIs of the entities transformed
         targets: URIs of the entities generated; typed as `prov:Entity` here
         pkg_id: URI of the software package that ran the transformation
-        started: start time
-        ended: end time, None while still running
+        started: URI of the start instant
+        ended: URI of the end instant, None while still running
     """
     for entity_id in targets:
         add_entity(graph, entity_id)
@@ -499,8 +501,8 @@ def load_sampling_prov(
     generated: Iterable[URIRef],
     quantity_id: URIRef,
     agent_id: URIRef,
-    started: datetime,
-    ended: datetime | None = None,
+    started: URIRef,
+    ended: URIRef | None = None,
 ) -> None:
     """Add a `prov-ext:Generalization` that sampled a quantity into generated entities.
 
@@ -511,8 +513,8 @@ def load_sampling_prov(
         generated: URIs of the sampled entities; typed as `prov:Entity` here
         quantity_id: URI of the sampled quantity
         agent_id: URI of the agent that ran the sampling
-        started: start time
-        ended: end time, None while still running
+        started: URI of the start instant
+        ended: URI of the end instant, None while still running
     """
     for entity_id in generated:
         add_entity(graph, entity_id)
@@ -533,8 +535,8 @@ def load_execution_prov(
     activity_id: URIRef,
     used: Iterable[URIRef],
     pkg_id: URIRef,
-    started: datetime,
-    ended: datetime | None = None,
+    started: URIRef,
+    ended: URIRef | None = None,
 ) -> None:
     """Add a `prov-ext:Execution` of the used entities by a software package.
 
@@ -543,8 +545,8 @@ def load_execution_prov(
         activity_id: URI of the execution
         used: URIs of the entities executed, e.g. an executable and its configuration
         pkg_id: URI of the software package that executed them
-        started: start time
-        ended: end time, None while still running
+        started: URI of the start instant
+        ended: URI of the end instant, None while still running
     """
     add_activity(
         graph,
