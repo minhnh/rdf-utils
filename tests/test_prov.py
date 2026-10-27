@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -321,15 +322,29 @@ class ProvTest(unittest.TestCase):
         self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
 
     def test_python_package_root(self):
-        package = add_package_root(self.graph, "rdf_utils")
+        with TemporaryDirectory() as root:
+            (Path(root) / "scene_pkg" / "models").mkdir(parents=True)
+            (Path(root) / "scene_pkg" / "__init__.py").write_text("")
+            (Path(root) / "scene_pkg" / "models" / "table.xml").write_bytes(b"test")
+            (Path(root) / "scene_pkg-1.0.dist-info").mkdir()
+            (Path(root) / "scene_pkg-1.0.dist-info" / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: scene_pkg\nVersion: 1.0\n"
+            )
+            with (
+                patch.object(sys, "path", [root, *sys.path]),
+                patch.dict(sys.modules),
+                patch.dict(sys.path_importer_cache),
+            ):
+                package = add_package_root(self.graph, "scene_pkg")
+                table = add_file_entity(self.graph, package, "models/table.xml")
+                self.assertEqual(
+                    get_file_path(self.graph, table),
+                    Path(root).resolve() / "scene_pkg" / "models" / "table.xml",
+                )
         self.assertIn((package, RDF.type, URI_SPDX_SW_TYPE_PACKAGE), self.graph)
-        self.assertEqual(self.graph.value(package, SDO.name), Literal("rdf_utils"))
-        self.assertIsNotNone(self.graph.value(package, SDO.softwareVersion))
-        module = add_file_entity(self.graph, package, "models/prov.py")
-        self.assertEqual(
-            get_file_path(self.graph, module),
-            Path(__file__).resolve().parents[1] / "src/rdf_utils/models/prov.py",
-        )
+        self.assertEqual(self.graph.value(package, SDO.name), Literal("scene_pkg"))
+        self.assertEqual(self.graph.value(package, SDO.softwareVersion), Literal("1.0"))
+        self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
 
     def test_relative_location(self):
         # relative: (given path, stored rel-path); resolved: (IRI, path)
