@@ -128,11 +128,11 @@ def add_file_entity(
     scheme = urlsplit(str(path)).scheme
     rel_path = PurePath(path).as_posix()
     if isinstance(root, URIRef):
-        path = _path_from_file_url(urljoin(_resolve(graph, root), quote(rel_path, safe="/")))
+        path = path_from_file_url(urljoin(resolve_location(graph, root), quote(rel_path, safe="/")))
     # Else an IRI, unless a one-letter scheme, which is a Windows drive.
     elif root is not None or len(scheme) <= 1 or scheme == "file":
         if scheme == "file":
-            path = _path_from_file_url(str(path))
+            path = path_from_file_url(str(path))
         path = Path(root or Path.cwd(), Path(path).expanduser()).resolve()
         directory = path.parent if root is None else Path(root).resolve()
         rel_path = PurePath(os.path.relpath(path, directory)).as_posix()
@@ -203,27 +203,8 @@ def create_bundle(agent_id: URIRef) -> Graph:
     return bundle
 
 
-def _resolve(graph: Graph, location: Node) -> str:
-    if (location, RDF.type, URI_ROS_TYPE_PACKAGE) in graph:
-        # Imported here: only a file in a ROS package needs ROS.
-        from ament_index_python.packages import get_package_share_directory
-
-        name = str(graph.value(location, SDO.name))
-        return f"{Path(get_package_share_directory(name)).as_uri()}/"
-    if (location, RDF.type, URI_SPDX_SW_TYPE_PACKAGE) in graph:
-        return f"{Path(str(resources.files(str(graph.value(location, SDO.name))))).as_uri()}/"
-    rel_path = graph.value(location, URI_PROV_EXT_PRED_REL_PATH)
-    root = graph.value(location, PROV.atLocation)
-    if root is not None:
-        resolved = _resolve(graph, root)
-        return resolved if rel_path is None else urljoin(resolved, str(rel_path))
-    if rel_path is None and isinstance(location, URIRef):
-        return str(location)
-    raise ValueError(f"location '{location}' is neither an IRI nor a relative location")
-
-
-def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
-    """The IRI a node is `prov:atLocation`, or None when it has no location.
+def resolve_location(graph: Graph, location: Node) -> URIRef:
+    """The IRI a location resolves to.
 
     A `prov-ext:RelativeLocation` resolves its `prov-ext:rel-path` against where its own
     location resolves to, as an RFC 3986 reference: against a directory it is a path below it,
@@ -232,16 +213,34 @@ def resolve_location(graph: Graph, node: URIRef) -> URIRef | None:
     package to the directory its Python package of that name imports from; an IRI as is. Any
     other location, e.g. a blank node or literal, raises a ValueError.
     """
+    if (location, RDF.type, URI_ROS_TYPE_PACKAGE) in graph:
+        # Imported here: only a file in a ROS package needs ROS.
+        from ament_index_python.packages import get_package_share_directory
+
+        name = str(graph.value(location, SDO.name))
+        return URIRef(f"{Path(get_package_share_directory(name)).as_uri()}/")
+    if (location, RDF.type, URI_SPDX_SW_TYPE_PACKAGE) in graph:
+        name = str(graph.value(location, SDO.name))
+        return URIRef(f"{Path(str(resources.files(name))).as_uri()}/")
+    rel_path = graph.value(location, URI_PROV_EXT_PRED_REL_PATH)
+    root = graph.value(location, PROV.atLocation)
+    if root is not None:
+        resolved = resolve_location(graph, root)
+        return resolved if rel_path is None else URIRef(urljoin(resolved, str(rel_path)))
+    if rel_path is None and isinstance(location, URIRef):
+        return location
+    raise ValueError(f"location '{location}' is neither an IRI nor a relative location")
+
+
+def get_file_path(graph: Graph, node: Node) -> Path | None:
+    """The local file NODE is `prov:atLocation`; None when it is at no local file."""
     location = graph.value(node, PROV.atLocation)
-    return None if location is None else URIRef(_resolve(graph, location))
-
-
-def get_file_path(graph: Graph, node: URIRef) -> Path | None:
-    """The local file NODE is at, from `resolve_location`; None when it is at no local file."""
-    location = resolve_location(graph, node)
-    if location is None or urlsplit(location).scheme != "file":
+    if location is None:
         return None
-    return _path_from_file_url(str(location))
+    resolved = resolve_location(graph, location)
+    if urlsplit(resolved).scheme != "file":
+        return None
+    return path_from_file_url(str(resolved))
 
 
 def add_agent(
@@ -316,7 +315,8 @@ def _repository_iri(url: str) -> str:
     return f"https://{host.rpartition('@')[2]}/{path}".removesuffix(".git")
 
 
-def _path_from_file_url(url: str) -> Path:
+def path_from_file_url(url: str) -> Path:
+    """The local path a `file:` URL names, percent-escapes decoded."""
     if sys.version_info >= (3, 13):
         return Path.from_uri(url)
     # Before 3.13 a file URL is decoded by hand: %20 escapes, and a host means a Windows share.
@@ -364,7 +364,7 @@ def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
 
     # dir_info, editable: `pip install -e <path>` or `-e git+<url>`; the checkout is the code.
     if origin.get("dir_info", {}).get("editable"):
-        return package.name, package.version, *get_git_info(_path_from_file_url(origin["url"]))
+        return package.name, package.version, *get_git_info(path_from_file_url(origin["url"]))
 
     # vcs_info: installed, not editable, from a VCS URL, `pip install git+<url>[@<ref>]`.
     if "vcs_info" in origin:

@@ -14,7 +14,6 @@ from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
-    _path_from_file_url,
     _repository_iri,
     add_agent,
     add_entity,
@@ -28,6 +27,7 @@ from rdf_utils.models.prov import (
     load_pkg_prov,
     load_sampling_prov,
     load_transformation_prov,
+    path_from_file_url,
     resolve_location,
 )
 from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
@@ -155,7 +155,7 @@ class ProvTest(unittest.TestCase):
 
     def test_path_from_file_url(self):
         path = Path("/home/user/my repo/ü").absolute()
-        self.assertEqual(_path_from_file_url(path.as_uri()), path)
+        self.assertEqual(path_from_file_url(path.as_uri()), path)
 
     def test_repository_iri_of_remotes(self):
         for remote, iri in [
@@ -254,7 +254,7 @@ class ProvTest(unittest.TestCase):
         self.assertIn((RUN, RDF.type, URI_PROV_EXT_TYPE_EXECUTION), self.graph)
         self.assertIn((RUN, PROV.wasAssociatedWith, PKG), self.graph)
         self.assertIn((log, PROV.wasGeneratedBy, RUN), self.graph)
-        self.assertEqual(resolve_location(self.graph, log), URIRef("file:///tmp/run/frames.log"))
+        self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
         self.assertIn((log, DCTERMS.format, Literal("application/octet-stream")), self.graph)
         self.assertEqual(self.graph.value(log, PROV.generatedAtTime).toPython(), self.t1)
         self.assertEqual(self.graph.value(log, DCTERMS.modified).toPython(), self.t1)
@@ -385,23 +385,23 @@ class ProvTest(unittest.TestCase):
                     ),
                     graph,
                 )
-                self.assertEqual(resolve_location(graph, LOG), URIRef(resolved))
-                self.assertEqual(_path_from_file_url(resolved), Path(path))
+                self.assertEqual(resolve_location(graph, LOG_LOCATION), URIRef(resolved))
+                self.assertEqual(path_from_file_url(resolved), Path(path))
                 check_shacl_constraints(graph, SHACL)
 
     def test_relative_location_under_a_relative_root(self):
         run = URIRef(f"{URI_TEST}/run-location")
         add_relative_location(self.graph, run, "run/1/", URIRef("file:///tmp/generations/"))
         add_relative_location(self.graph, LOG_LOCATION, "frames.log", run)
-        self.graph.add((LOG, PROV.atLocation, LOG_LOCATION))
         self.assertEqual(
-            resolve_location(self.graph, LOG), URIRef("file:///tmp/generations/run/1/frames.log")
+            resolve_location(self.graph, LOG_LOCATION),
+            URIRef("file:///tmp/generations/run/1/frames.log"),
         )
 
     def test_location_without_root_resolves_to_itself(self):
         log = add_file_entity(self.graph, None, "/tmp/run/frames.log", sha256=SHA256)
-        self.assertEqual(resolve_location(self.graph, log), URIRef("file:///tmp/run/frames.log"))
-        self.assertIsNone(resolve_location(self.graph, MODEL))
+        self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
+        self.assertIsNone(get_file_path(self.graph, MODEL))
 
     def test_relative_location_rejects_an_absolute_path(self):
         with self.assertRaises(ValueError):
