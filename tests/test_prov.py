@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 import json
 import re
+import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,19 +14,20 @@ from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
-    _path_from_file_url,
     _repository_iri,
     add_agent,
     add_entity,
     add_file_entity,
     add_relative_location,
     create_bundle,
+    get_file_path,
     get_git_info,
     get_pkg_info,
     load_execution_prov,
     load_pkg_prov,
     load_sampling_prov,
     load_transformation_prov,
+    path_from_file_url,
     resolve_location,
 )
 from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
@@ -35,6 +37,7 @@ from rdf_utils.models.vocab import (
     URI_PROV_EXT_TYPE_GENERALIZATION,
     URI_PROV_EXT_TYPE_RELATIVE_LOCATION,
     URI_PROV_EXT_TYPE_TRANSFORMATION,
+    URI_SPDX_SW_TYPE_PACKAGE,
 )
 from rdf_utils.namespace import (
     URL_MM_PROV_EXT_SHACL,
@@ -152,7 +155,7 @@ class ProvTest(unittest.TestCase):
 
     def test_path_from_file_url(self):
         path = Path("/home/user/my repo/ü").absolute()
-        self.assertEqual(_path_from_file_url(path.as_uri()), path)
+        self.assertEqual(path_from_file_url(path.as_uri()), path)
 
     def test_repository_iri_of_remotes(self):
         for remote, iri in [
@@ -251,7 +254,7 @@ class ProvTest(unittest.TestCase):
         self.assertIn((RUN, RDF.type, URI_PROV_EXT_TYPE_EXECUTION), self.graph)
         self.assertIn((RUN, PROV.wasAssociatedWith, PKG), self.graph)
         self.assertIn((log, PROV.wasGeneratedBy, RUN), self.graph)
-        self.assertIn((log, PROV.atLocation, URIRef("file:///tmp/run/frames.log")), self.graph)
+        self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
         self.assertIn((log, DCTERMS.format, Literal("application/octet-stream")), self.graph)
         self.assertEqual(self.graph.value(log, PROV.generatedAtTime).toPython(), self.t1)
         self.assertEqual(self.graph.value(log, DCTERMS.modified).toPython(), self.t1)
@@ -274,16 +277,74 @@ class ProvTest(unittest.TestCase):
         self.assertEqual(log, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
 
     def test_file_keeps_iri_location(self):
-        for location in ("https://example.org/logs/1", "urn:example:log", "file:/tmp/run.log"):
+        for location in ("https://example.org/logs/1", "urn:example:log"):
             with self.subTest(location=location):
                 log = add_file_entity(self.graph, None, location, sha256=SHA256)
                 self.assertIn((log, PROV.atLocation, URIRef(location)), self.graph)
 
+    def test_directory_outside_a_checkout_is_at_its_path(self):
+        with TemporaryDirectory() as directory:
+            Path(directory, "a.log").write_bytes(b"test")
+            log = add_file_entity(self.graph, None, Path(directory, "a.log"))
+            root = self.graph.value(self.graph.value(log, PROV.atLocation), PROV.atLocation)
+            self.assertEqual(
+                self.graph.value(root, PROV.atLocation),
+                URIRef(f"{Path(directory).resolve().as_uri()}/"),
+            )
+            self.assertEqual(get_file_path(self.graph, log), Path(directory, "a.log").resolve())
+        check_shacl_constraints(self.graph, SHACL)
+
+    def test_directory_in_a_checkout_is_located_in_it(self):
+        log = add_file_entity(self.graph, Path(__file__).parent, "test_prov.py")
+        checkout = Path(__file__).resolve().parents[1]
+        self.assertEqual(get_file_path(self.graph, log), Path(__file__).resolve())
+        tests = self.graph.value(self.graph.value(log, PROV.atLocation), PROV.atLocation)
+        root = self.graph.value(tests, PROV.atLocation)
+        self.assertEqual(
+            self.graph.value(tests, URI_PROV_EXT_PRED_REL_PATH),
+            Literal("tests/", datatype=XSD.anyURI),
+        )
+        self.assertRegex(str(self.graph.value(root, SDO.identifier)), REVISION)
+        self.assertEqual(self.graph.value(root, PROV.atLocation), URIRef(f"{checkout.as_uri()}/"))
+
+    def test_path_beside_the_file_it_was_written_in(self):
+        with TemporaryDirectory() as root:
+            (Path(root) / "models").mkdir()
+            (Path(root) / "models" / "scene.scenex").write_bytes(b"scene")
+            (Path(root) / "table.xml").write_bytes(b"test")
+            scene = add_file_entity(self.graph, root, "models/scene.scenex")
+            scene_location = self.graph.value(scene, PROV.atLocation)
+            assert isinstance(scene_location, URIRef)
+            table = add_file_entity(self.graph, scene_location, "../table.xml")
+            self.assertEqual(get_file_path(self.graph, table), Path(root).resolve() / "table.xml")
+        self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
+
+    def test_python_package_root(self):
+        with TemporaryDirectory() as root:
+            (Path(root) / "scene_pkg" / "models").mkdir(parents=True)
+            (Path(root) / "scene_pkg" / "__init__.py").write_text("")
+            (Path(root) / "scene_pkg" / "models" / "table.xml").write_bytes(b"test")
+            with (
+                patch.object(sys, "path", [root, *sys.path]),
+                patch.dict(sys.modules),
+                patch.dict(sys.path_importer_cache),
+            ):
+                package = URIRef("urn:test:scene_pkg")
+                load_pkg_prov(self.graph, package, "scene_pkg")
+                table = add_file_entity(self.graph, package, "models/table.xml")
+                self.assertEqual(
+                    get_file_path(self.graph, table),
+                    Path(root).resolve() / "scene_pkg" / "models" / "table.xml",
+                )
+        self.assertIn((package, RDF.type, URI_SPDX_SW_TYPE_PACKAGE), self.graph)
+        self.assertEqual(self.graph.value(package, SDO.name), Literal("scene_pkg"))
+        self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
+
     def test_relative_location(self):
-        # root: (given, IRI); relative: (given path, stored rel-path); resolved: (IRI, path)
+        # relative: (given path, stored rel-path); resolved: (IRI, path)
         cases = {
             "path root": {
-                "root": ("/tmp/generations", "file:///tmp/generations/"),
+                "root": "/tmp/generations",
                 "relative": ("run/1/frames.log", "run/1/frames.log"),
                 "resolved": (
                     "file:///tmp/generations/run/1/frames.log",
@@ -291,7 +352,7 @@ class ProvTest(unittest.TestCase):
                 ),
             },
             "iri root": {
-                "root": (URIRef("file:///tmp/generations/"), "file:///tmp/generations/"),
+                "root": URIRef("file:///tmp/generations/"),
                 "relative": ("run/1/frames.log", "run/1/frames.log"),
                 "resolved": (
                     "file:///tmp/generations/run/1/frames.log",
@@ -299,7 +360,7 @@ class ProvTest(unittest.TestCase):
                 ),
             },
             "spaces and percent": {
-                "root": ("/tmp/gen data", "file:///tmp/gen%20data/"),
+                "root": "/tmp/gen data",
                 "relative": ("run 1/50% load.log", "run%201/50%25%20load.log"),
                 "resolved": (
                     "file:///tmp/gen%20data/run%201/50%25%20load.log",
@@ -308,17 +369,14 @@ class ProvTest(unittest.TestCase):
             },
         }
         for name, case in cases.items():
-            root, root_iri = case["root"]
             rel_path, reference = case["relative"]
             resolved, path = case["resolved"]
             with self.subTest(name):
                 graph = Graph()
-                add_relative_location(graph, LOG_LOCATION, rel_path, root)
+                add_relative_location(graph, LOG_LOCATION, rel_path, case["root"])
                 add_entity(graph, LOG)
                 graph.add((LOG, PROV.atLocation, LOG_LOCATION))
                 self.assertIn((LOG_LOCATION, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION), graph)
-                self.assertIn((LOG_LOCATION, PROV.atLocation, URIRef(root_iri)), graph)
-                self.assertIn((URIRef(root_iri), RDF.type, PROV.Location), graph)
                 self.assertIn(
                     (
                         LOG_LOCATION,
@@ -327,23 +385,23 @@ class ProvTest(unittest.TestCase):
                     ),
                     graph,
                 )
-                self.assertEqual(resolve_location(graph, LOG), URIRef(resolved))
-                self.assertEqual(_path_from_file_url(resolved), Path(path))
+                self.assertEqual(resolve_location(graph, LOG_LOCATION), URIRef(resolved))
+                self.assertEqual(path_from_file_url(resolved), Path(path))
                 check_shacl_constraints(graph, SHACL)
 
     def test_relative_location_under_a_relative_root(self):
         run = URIRef(f"{URI_TEST}/run-location")
-        add_relative_location(self.graph, run, "run/1", URIRef("file:///tmp/generations/"))
+        add_relative_location(self.graph, run, "run/1/", URIRef("file:///tmp/generations/"))
         add_relative_location(self.graph, LOG_LOCATION, "frames.log", run)
-        self.graph.add((LOG, PROV.atLocation, LOG_LOCATION))
         self.assertEqual(
-            resolve_location(self.graph, LOG), URIRef("file:///tmp/generations/run/1/frames.log")
+            resolve_location(self.graph, LOG_LOCATION),
+            URIRef("file:///tmp/generations/run/1/frames.log"),
         )
 
     def test_location_without_root_resolves_to_itself(self):
         log = add_file_entity(self.graph, None, "/tmp/run/frames.log", sha256=SHA256)
-        self.assertEqual(resolve_location(self.graph, log), URIRef("file:///tmp/run/frames.log"))
-        self.assertIsNone(resolve_location(self.graph, MODEL))
+        self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
+        self.assertIsNone(get_file_path(self.graph, MODEL))
 
     def test_relative_location_rejects_an_absolute_path(self):
         with self.assertRaises(ValueError):
