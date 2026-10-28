@@ -65,6 +65,13 @@ def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
 
     A checkout's root states the repository and revision it holds, from `get_git_info`, so a
     file under it is located in that code wherever the checkout sits.
+
+    Parameters:
+        graph: RDF graph to add the location to
+        directory: the directory, absolute or relative to the working directory
+
+    Returns:
+        URI of the location, the UUIDv5 of the directory's `file:` IRI
     """
     directory = Path(directory).resolve()
     location = URIRef(uuid5(NAMESPACE_URL, directory.as_uri()).urn)
@@ -210,8 +217,18 @@ def resolve_location(graph: Graph, location: Node) -> URIRef:
     location resolves to, as an RFC 3986 reference: against a directory it is a path below it,
     against a file one beside it. A location that is itself `prov:atLocation` resolves to that;
     a `ros:Package` to its share directory, in the ament index by its `schema:name`; any other
-    package to the directory its Python package of that name imports from; an IRI as is. Any
-    other location, e.g. a blank node or literal, raises a ValueError.
+    package to the directory its Python package of that name imports from; an IRI as is.
+
+    Parameters:
+        graph: RDF graph the location is described in
+        location: the location, e.g. the `prov:atLocation` of an entity
+
+    Returns:
+        IRI the location resolves to; a directory's ends in `/`
+
+    Raises:
+        ValueError: when the location is neither an IRI nor resolves to one, e.g. a blank node
+            or literal
     """
     if (location, RDF.type, URI_ROS_TYPE_PACKAGE) in graph:
         # Imported here: only a file in a ROS package needs ROS.
@@ -233,7 +250,15 @@ def resolve_location(graph: Graph, location: Node) -> URIRef:
 
 
 def get_file_path(graph: Graph, node: Node) -> Path | None:
-    """The local file NODE is `prov:atLocation`; None when it is at no local file."""
+    """The local file a node is at, its `prov:atLocation` resolved by `resolve_location`.
+
+    Parameters:
+        graph: RDF graph the node is described in
+        node: the node, e.g. a file entity
+
+    Returns:
+        Path of the file; None when the node has no location or is not at a `file:` IRI
+    """
     location = graph.value(node, PROV.atLocation)
     if location is None:
         return None
@@ -316,10 +341,18 @@ def _repository_iri(url: str) -> str:
 
 
 def path_from_file_url(url: str) -> Path:
-    """The local path a `file:` URL names, percent-escapes decoded."""
+    """The local path a `file:` URL names.
+
+    From Python 3.13 `Path.from_uri` decodes it; before, it is decoded by hand.
+
+    Parameters:
+        url: the `file:` URL, percent-encoded as RFC 8089 writes it
+
+    Returns:
+        Path with percent-escapes decoded; a URL with a host is a Windows UNC share
+    """
     if sys.version_info >= (3, 13):
         return Path.from_uri(url)
-    # Before 3.13 a file URL is decoded by hand: %20 escapes, and a host means a Windows share.
     parsed = urlsplit(url)
     return Path(url2pathname(f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path))
 
