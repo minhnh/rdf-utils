@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
 import json
-import os
 import re
 import sys
 import unittest
@@ -20,7 +19,6 @@ from rdf_utils.models.prov import (
     add_agent,
     add_entity,
     add_file_entity,
-    add_package_root,
     add_relative_location,
     create_bundle,
     get_file_path,
@@ -284,30 +282,30 @@ class ProvTest(unittest.TestCase):
                 log = add_file_entity(self.graph, None, location, sha256=SHA256)
                 self.assertIn((log, PROV.atLocation, URIRef(location)), self.graph)
 
-    def test_home_is_the_only_absolute_location(self):
-        with TemporaryDirectory(dir=Path.home()) as inside, TemporaryDirectory() as outside:
-            for path in (Path(inside, "a.log"), Path(outside, "b.log")):
-                path.write_bytes(b"test")
-                add_file_entity(self.graph, None, path)
-            add_file_entity(self.graph, None, "file:///tmp/run.log", sha256=SHA256)
-        absolute = {node for node in self.graph.all_nodes() if str(node).startswith("file:")}
-        self.assertEqual(absolute, {URIRef(f"{Path.home().as_uri()}/")})
+    def test_directory_outside_a_checkout_is_at_its_path(self):
+        with TemporaryDirectory() as directory:
+            Path(directory, "a.log").write_bytes(b"test")
+            log = add_file_entity(self.graph, None, Path(directory, "a.log"))
+            root = self.graph.value(self.graph.value(log, PROV.atLocation), PROV.atLocation)
+            self.assertEqual(
+                self.graph.value(root, PROV.atLocation),
+                URIRef(f"{Path(directory).resolve().as_uri()}/"),
+            )
+            self.assertEqual(get_file_path(self.graph, log), Path(directory, "a.log").resolve())
         check_shacl_constraints(self.graph, SHACL)
 
     def test_directory_in_a_checkout_is_located_in_it(self):
         log = add_file_entity(self.graph, Path(__file__).parent, "test_prov.py")
         checkout = Path(__file__).resolve().parents[1]
         self.assertEqual(get_file_path(self.graph, log), Path(__file__).resolve())
-        [root] = (
-            location
-            for location in self.graph.subjects(SDO.codeRepository, None)
-            if (location, RDF.type, URI_PROV_EXT_TYPE_RELATIVE_LOCATION) in self.graph
+        tests = self.graph.value(self.graph.value(log, PROV.atLocation), PROV.atLocation)
+        root = self.graph.value(tests, PROV.atLocation)
+        self.assertEqual(
+            self.graph.value(tests, URI_PROV_EXT_PRED_REL_PATH),
+            Literal("tests/", datatype=XSD.anyURI),
         )
         self.assertRegex(str(self.graph.value(root, SDO.identifier)), REVISION)
-        self.assertEqual(
-            self.graph.value(root, URI_PROV_EXT_PRED_REL_PATH),
-            Literal(f"{os.path.relpath(checkout, Path.home())}/", datatype=XSD.anyURI),
-        )
+        self.assertEqual(self.graph.value(root, PROV.atLocation), URIRef(f"{checkout.as_uri()}/"))
 
     def test_path_beside_the_file_it_was_written_in(self):
         with TemporaryDirectory() as root:
@@ -315,9 +313,9 @@ class ProvTest(unittest.TestCase):
             (Path(root) / "models" / "scene.scenex").write_bytes(b"scene")
             (Path(root) / "table.xml").write_bytes(b"test")
             scene = add_file_entity(self.graph, root, "models/scene.scenex")
-            table = add_file_entity(
-                self.graph, self.graph.value(scene, PROV.atLocation), "../table.xml"
-            )
+            scene_location = self.graph.value(scene, PROV.atLocation)
+            assert isinstance(scene_location, URIRef)
+            table = add_file_entity(self.graph, scene_location, "../table.xml")
             self.assertEqual(get_file_path(self.graph, table), Path(root).resolve() / "table.xml")
         self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
 
@@ -326,16 +324,13 @@ class ProvTest(unittest.TestCase):
             (Path(root) / "scene_pkg" / "models").mkdir(parents=True)
             (Path(root) / "scene_pkg" / "__init__.py").write_text("")
             (Path(root) / "scene_pkg" / "models" / "table.xml").write_bytes(b"test")
-            (Path(root) / "scene_pkg-1.0.dist-info").mkdir()
-            (Path(root) / "scene_pkg-1.0.dist-info" / "METADATA").write_text(
-                "Metadata-Version: 2.1\nName: scene_pkg\nVersion: 1.0\n"
-            )
             with (
                 patch.object(sys, "path", [root, *sys.path]),
                 patch.dict(sys.modules),
                 patch.dict(sys.path_importer_cache),
             ):
-                package = add_package_root(self.graph, "scene_pkg")
+                package = URIRef("urn:test:scene_pkg")
+                load_pkg_prov(self.graph, package, "scene_pkg")
                 table = add_file_entity(self.graph, package, "models/table.xml")
                 self.assertEqual(
                     get_file_path(self.graph, table),
@@ -343,7 +338,6 @@ class ProvTest(unittest.TestCase):
                 )
         self.assertIn((package, RDF.type, URI_SPDX_SW_TYPE_PACKAGE), self.graph)
         self.assertEqual(self.graph.value(package, SDO.name), Literal("scene_pkg"))
-        self.assertEqual(self.graph.value(package, SDO.softwareVersion), Literal("1.0"))
         self.assertEqual(table, URIRef(f"ni:///sha-256;{NI_DIGEST}"))
 
     def test_relative_location(self):

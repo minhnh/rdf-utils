@@ -14,11 +14,11 @@ from pathlib import Path, PurePath
 from urllib.parse import quote, urljoin, urlsplit
 from urllib.request import url2pathname
 from uuid import NAMESPACE_URL, uuid4, uuid5
-from xml.etree import ElementTree
 
-from git import InvalidGitRepositoryError, NoSuchPathError, Repo
+from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from rdflib import RDF, XSD, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
+from rdflib.term import Node
 
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
@@ -29,7 +29,6 @@ from rdf_utils.models.vocab import (
     URI_ROS_TYPE_PACKAGE,
     URI_SPDX_SW_TYPE_PACKAGE,
 )
-from rdf_utils.namespace import NS_MM_ROS
 
 
 def add_entity(graph: Graph, entity_id: URIRef) -> None:
@@ -61,84 +60,32 @@ def get_ni_iri(path: str | Path, sha256: str | None = None) -> URIRef:
     return URIRef(f"ni:///sha-256;{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}")
 
 
-def add_home_location(graph: Graph) -> URIRef:
-    """The one absolute location of a dataset, the home directory, every other one relative to it.
-
-    Named by the UUIDv5 of its IRI, so the tools writing into one dataset share the node, and
-    moving or anonymising a dataset changes this one `prov:atLocation`.
-    """
-    home = URIRef(f"{Path.home().as_uri()}/")
-    location = URIRef(uuid5(NAMESPACE_URL, str(home)).urn)
-    graph.add((location, RDF.type, PROV.Location))
-    graph.add((location, PROV.atLocation, home))
-    return location
-
-
 def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
-    """Where a directory is: under the root of the git checkout it is in, else under home.
+    """Where a directory is: under the root of the git checkout it is in, else at its path.
 
     A checkout's root states the repository and revision it holds, from `get_git_info`, so a
     file under it is located in that code wherever the checkout sits.
     """
     directory = Path(directory).resolve()
-    home = Path.home().resolve()
-    if directory == home:
-        return add_home_location(graph)
     location = URIRef(uuid5(NAMESPACE_URL, directory.as_uri()).urn)
     if (location, PROV.atLocation, None) in graph:
         return location
     try:
-        checkout = Path(Repo(directory, search_parent_directories=True).working_tree_dir)
+        checkout = Path(Repo(directory, search_parent_directories=True).working_dir)
     except (InvalidGitRepositoryError, NoSuchPathError):
         checkout = None
     if checkout is not None and checkout != directory:
-        root, parent = add_directory_location(graph, checkout), checkout
-    else:
-        root, parent = add_home_location(graph), home
-        if checkout is not None:
-            commit, repository = get_git_info(checkout)
-            if commit is not None:
-                graph.add((location, SDO.identifier, Literal(commit)))
-            if repository is not None:
-                graph.add((location, SDO.codeRepository, URIRef(repository)))
-    add_relative_location(graph, location, f"{os.path.relpath(directory, parent)}/", root)
-    return location
-
-
-def add_package_root(graph: Graph, name: str, ros: bool = False) -> URIRef:
-    """A package as the root of paths into it, found by NAME: a ROS package in the ament index,
-    else a Python package by its import name, described by its version and source.
-
-    Parameters:
-        graph: RDF graph to add the package to
-        name: the package's name, stored as `schema:name`
-        ros: a ROS package, typed `ros:Package` and named by its ROS index IRI
-
-    Returns:
-        URI of the package, the root to pass to `add_file_entity`
-    """
-    package = NS_MM_ROS[f"{name}/"] if ros else URIRef(uuid5(NAMESPACE_URL, f"python:{name}").urn)
-    for type_id in (
-        URI_SPDX_SW_TYPE_PACKAGE,
-        PROV.Location,
-        *([URI_ROS_TYPE_PACKAGE] if ros else []),
-    ):
-        graph.add((package, RDF.type, type_id))
-    graph.add((package, SDO.name, Literal(name)))
-    if ros:
-        manifest = _path_from_file_url(_resolve(graph, package)) / "package.xml"
-        version = ElementTree.parse(manifest).findtext("version")
-        # A symlinked install reaches the checkout its files came from.
-        commit, repository = get_git_info(manifest.resolve().parent)
-    else:
-        _, version, commit, repository = get_pkg_info(name)
-    if version is not None:
-        graph.add((package, SDO.softwareVersion, Literal(version)))
+        root = add_directory_location(graph, checkout)
+        add_relative_location(graph, location, f"{os.path.relpath(directory, checkout)}/", root)
+        return location
+    graph.add((location, RDF.type, PROV.Location))
+    graph.add((location, PROV.atLocation, URIRef(f"{directory.as_uri()}/")))
+    commit, repository = get_git_info(directory)
     if commit is not None:
-        graph.add((package, SDO.identifier, Literal(commit)))
+        graph.add((location, SDO.identifier, Literal(commit)))
     if repository is not None:
-        graph.add((package, SDO.codeRepository, URIRef(repository)))
-    return package
+        graph.add((location, SDO.codeRepository, URIRef(repository)))
+    return location
 
 
 def add_file_entity(
@@ -157,13 +104,14 @@ def add_file_entity(
     It is located by its path in a `prov-ext:RelativeLocation` under ROOT, named by the UUIDv5 of
     its name, root and path: a location is a `prov:Entity`, which the PROV shapes require to be an
     IRI, and one file at one place is one location however often it is added. Every directory is
-    located by `add_directory_location`, so the home directory is the dataset's one absolute path.
+    located by `add_directory_location`.
 
     Parameters:
         graph: RDF graph to add the file to
         root: what PATH is relative to: a directory, a location in the graph -- a package from
-            `add_package_root`, or the location of the file PATH was written in -- or None for an
-            absolute PATH (`~` expanded) or an IRI, located as given
+            `load_pkg_prov`, or the location of the file PATH
+            was written in -- or None for a PATH absolute or in the working directory (`~`
+            expanded), or an IRI, located as given
         path: the file, relative to ROOT or absolute
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
         generated_at: wall-clock datetime when the file was complete, stored as
@@ -177,23 +125,22 @@ def add_file_entity(
     Returns:
         URI of the file
     """
-    location = None
     scheme = urlsplit(str(path)).scheme
+    rel_path = PurePath(path).as_posix()
     if isinstance(root, URIRef):
-        rel_path = PurePath(path).as_posix()
         path = _path_from_file_url(urljoin(_resolve(graph, root), quote(rel_path, safe="/")))
-    elif root is None and len(scheme) > 1 and scheme != "file":
-        # A one-letter scheme is a Windows drive, not an IRI.
-        location = URIRef(str(path))
-    else:
+    # Else an IRI, unless a one-letter scheme, which is a Windows drive.
+    elif root is not None or len(scheme) <= 1 or scheme == "file":
         if scheme == "file":
             path = _path_from_file_url(str(path))
-        path = Path(root or "/", Path(path).expanduser()).resolve()
+        path = Path(root or Path.cwd(), Path(path).expanduser()).resolve()
         directory = path.parent if root is None else Path(root).resolve()
         rel_path = PurePath(os.path.relpath(path, directory)).as_posix()
         root = add_directory_location(graph, directory)
     file_id = get_ni_iri(path, sha256)
-    if location is None:
+    if root is None:
+        location = URIRef(str(path))
+    else:
         location = URIRef(uuid5(uuid5(NAMESPACE_URL, str(file_id)), f"{root} {rel_path}").urn)
         add_relative_location(graph, location, rel_path, root)
     add_entity(graph, file_id)
@@ -256,7 +203,7 @@ def create_bundle(agent_id: URIRef) -> Graph:
     return bundle
 
 
-def _resolve(graph: Graph, location: URIRef) -> str:
+def _resolve(graph: Graph, location: Node) -> str:
     if (location, RDF.type, URI_ROS_TYPE_PACKAGE) in graph:
         # Imported here: only a file in a ROS package needs ROS.
         from ament_index_python.packages import get_package_share_directory
@@ -267,11 +214,10 @@ def _resolve(graph: Graph, location: URIRef) -> str:
         return f"{Path(str(resources.files(str(graph.value(location, SDO.name))))).as_uri()}/"
     rel_path = graph.value(location, URI_PROV_EXT_PRED_REL_PATH)
     root = graph.value(location, PROV.atLocation)
-    if rel_path is not None:
-        return urljoin(_resolve(graph, root), str(rel_path))
     if root is not None:
-        return _resolve(graph, root)
-    if isinstance(location, URIRef):
+        resolved = _resolve(graph, root)
+        return resolved if rel_path is None else urljoin(resolved, str(rel_path))
+    if rel_path is None and isinstance(location, URIRef):
         return str(location)
     raise ValueError(f"location '{location}' is neither an IRI nor a relative location")
 
@@ -391,11 +337,11 @@ def get_git_info(path: Path) -> tuple[str | None, str | None]:
         repo = Repo(path, search_parent_directories=True)
         # A repository without a commit has no HEAD to read.
         commit = repo.head.commit.hexsha
-    except (InvalidGitRepositoryError, NoSuchPathError, ValueError):
+        if repo.is_dirty(untracked_files=True):
+            commit = f"{commit}-dirty"
+        remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
+    except (InvalidGitRepositoryError, NoSuchPathError, ValueError, GitCommandError):
         return None, None
-    if repo.is_dirty(untracked_files=True):
-        commit = f"{commit}-dirty"
-    remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
     return commit, _repository_iri(remote) if remote else None
 
 
@@ -440,18 +386,24 @@ def load_pkg_prov(
     version: str | None = None,
     commit: str | None = None,
     repository: str | None = None,
+    additional_types: Iterable[URIRef] = (),
 ) -> None:
     """Add a software package as a `prov:SoftwareAgent` and `spdx-sw:Package`, with schema.org terms.
+
+    The package is also a `prov:Location`, the root to pass to `add_file_entity` for its files.
 
     Parameters:
         graph: RDF graph to add the package to
         pkg_id: URI of the package
-        name: package name, stored as `schema:name`
+        name: package name, stored as `schema:name`; the import name of a Python package, the
+            ament name of a `ros:Package`, which is how its files are found
         version: package version, stored as `schema:softwareVersion`
         commit: revision identifier, stored as `schema:identifier`
         repository: URL of the source repository, stored as `schema:codeRepository`
+        additional_types: its kinds besides those, e.g. `ros:Package`
     """
-    add_agent(graph, pkg_id, (PROV.SoftwareAgent, URI_SPDX_SW_TYPE_PACKAGE), name)
+    types = (PROV.SoftwareAgent, URI_SPDX_SW_TYPE_PACKAGE, PROV.Location, *additional_types)
+    add_agent(graph, pkg_id, types, name)
     if version is not None:
         graph.add((pkg_id, SDO.softwareVersion, Literal(version)))
     if commit is not None:
