@@ -202,7 +202,7 @@ def resolve_location(graph: Graph, location: Node) -> URIRef:
     # A relative location, a directory, or a repository at its checkout. A directory or a
     # repository has no rel-path, and an empty one joins to the root itself.
     root = graph.value(location, PROV.atLocation)
-    if root is not None:
+    if isinstance(root, URIRef):
         rel_path = graph.value(location, URI_PROV_EXT_PRED_REL_PATH, default=Literal(""))
         return URIRef(urljoin(resolve_location(graph, root), str(rel_path)))
     # ROS package. A `Path` has no trailing `/`, which `urljoin` needs for a directory.
@@ -216,6 +216,7 @@ def resolve_location(graph: Graph, location: Node) -> URIRef:
     if (location, RDF.type, URI_SPDX_SW_TYPE_PACKAGE) in graph:
         name = str(graph.value(location, SDO.name))
         return URIRef(f"{Path(str(resources.files(name))).as_uri()}/")
+    # An absolute path is a `prov:Location` itself, not linked via `prov:atLocation`.
     if isinstance(location, URIRef):
         return location
     raise ValueError(f"location '{location}' is neither an IRI nor a relative location")
