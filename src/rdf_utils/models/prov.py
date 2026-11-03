@@ -230,14 +230,20 @@ def get_file_path(graph: Graph, node: Node) -> Path | None:
         node: the node, e.g. a file entity
 
     Returns:
-        Path of the file; None when the node has no location or is not at a `file:` IRI
+        Path of the file; None when the node has no location
+
+    Raises:
+        ValueError: when the location resolves to an IRI that is not `file:`, e.g. `https:`
     """
     location = graph.value(node, PROV.atLocation)
     if location is None:
         return None
     resolved = resolve_location(graph, location)
-    if urlsplit(resolved).scheme != "file":
-        return None
+    scheme = urlsplit(resolved).scheme
+    if scheme != "file":
+        raise ValueError(
+            f"'{node}' is at '{resolved}' -- a '{scheme}:' IRI, not a local `file:` path"
+        )
     return path_from_file_url(str(resolved))
 
 

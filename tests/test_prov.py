@@ -382,6 +382,9 @@ class ProvTest(unittest.TestCase):
         )
         self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
         self.assertIsNone(get_file_path(self.graph, MODEL))
+        self.graph.add((SAMPLE, PROV.atLocation, URIRef("https://example.org/data/scan.bag")))
+        with self.assertRaises(ValueError):
+            get_file_path(self.graph, SAMPLE)
 
     def test_path_and_root_must_agree(self):
         generations = add_directory_location(self.graph, "/tmp/generations")
