@@ -2,6 +2,7 @@
 from rdf_utils.namespace import (
     NS_MM_ACT,
     NS_MM_AGN,
+    NS_MM_COLOR,
     NS_MM_DISTRIB,
     NS_MM_DYN_COORD,
     NS_MM_DYN_ENT,
@@ -20,6 +21,7 @@ from rdf_utils.namespace import (
     NS_MM_QUDT_QTY,
     NS_MM_QUDT_UNIT,
     NS_MM_ROS,
+    NS_MM_SHAPES,
     NS_MM_TC,
     NS_SPDX_SW,
 )
@@ -229,6 +231,16 @@ URI_ACT_PRED_ROTOR_INERTIA = NS_MM_ACT["rotor-inertia"]
 URI_ACT_PRED_COMMAND_INTERFACE = NS_MM_ACT["command-interface"]
 URI_ACT_PRED_STATE_INTERFACE = NS_MM_ACT["state-interface"]
 URI_ACT_TYPE_JOINT_CURRENT = NS_MM_ACT["JointCurrent"]
+
+# Color
+URI_COLOR_TYPE_COLOR = NS_MM_COLOR["Color"]
+URI_COLOR_PRED_HAS_COLOR = NS_MM_COLOR["has-color"]
+URI_COLOR_PRED_VALUE = NS_MM_COLOR["value"]
+
+# Shapes
+URI_SHAPES_TYPE_SCALED_SHAPE = NS_MM_SHAPES["ScaledShape"]
+URI_SHAPES_TYPE_FILE_BASED_SHAPE = NS_MM_SHAPES["FileBasedShape"]
+URI_SHAPES_PRED_ATTACHED_TO_FRAME = NS_MM_SHAPES["attached-to-frame"]
 
 # Distribution
 URI_DISTRIB_TYPE_DISTRIB = NS_MM_DISTRIB["Distribution"]
