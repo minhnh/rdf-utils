@@ -40,25 +40,6 @@ def add_entity(graph: Graph, entity_id: URIRef) -> None:
     graph.add((entity_id, RDF.type, PROV.Entity))
 
 
-def get_ni_iri(path: str | Path, sha256: str | None = None) -> URIRef:
-    """The IRI of a file's content, named by its hash: the same bytes have the same name.
-
-    Parameters:
-        path: the file
-        sha256: hex SHA-256 digest of its bytes, when they are not read from PATH
-
-    Returns:
-        An RFC 6920 named-information IRI, `ni:///sha-256;<digest>`, digest base64url unpadded
-    """
-    if sha256:
-        digest = bytes.fromhex(sha256)
-    else:
-        # Streamed: a run's log or bag can be larger than memory.
-        with Path(path).open("rb") as file:
-            digest = hashlib.file_digest(file, "sha256").digest()
-    return URIRef(f"ni:///sha-256;{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}")
-
-
 def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
     """Where a directory is: at its `file:` IRI, a root for `add_file_entity`.
 
@@ -79,7 +60,6 @@ def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
 
 def add_file_entity(
     graph: Graph,
-    file_id: URIRef,
     root: URIRef | None,
     path: str | Path,
     generated_by: URIRef | None = None,
@@ -88,14 +68,13 @@ def add_file_entity(
     fmt: str | None = None,
     additional_types: Iterable[URIRef] = (),
 ) -> URIRef:
-    """Add a file as a `prov:Entity` at PATH.
+    """Add a file as a `prov:Entity` at PATH, which need not exist.
 
     A relative PATH is located by `add_relative_location` under ROOT, an absolute one at its
-    `file:` IRI.
+    `file:` IRI. A step that read or wrote the file states its hash with `add_file_hash`.
 
     Parameters:
         graph: RDF graph to add the file to
-        file_id: URI of the file, the `get_ni_iri` of its bytes
         root: the location a relative PATH is relative to -- from `add_directory_location`,
             `load_pkg_prov`, or the location of the file PATH was written in -- or None for an
             absolute PATH
@@ -108,7 +87,7 @@ def add_file_entity(
         additional_types: its kinds besides `prov:Entity`
 
     Returns:
-        URI of the file
+        URI of the file, the UUIDv5 of its location
 
     Raises:
         ValueError: when PATH is relative without ROOT, or absolute with it
@@ -120,6 +99,7 @@ def add_file_entity(
         location = URIRef(path.as_uri())
     else:
         location = add_relative_location(graph, root, path.as_posix())
+    file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)
     for type_id in additional_types:
         graph.add((file_id, RDF.type, type_id))
@@ -133,6 +113,24 @@ def add_file_entity(
     if fmt is not None:
         graph.add((file_id, DCTERMS.format, Literal(fmt)))
     return file_id
+
+
+def add_file_hash(graph: Graph, file_id: URIRef, path: str | Path) -> None:
+    """State the hash of the bytes at PATH as the file's `dcterms:identifier`.
+
+    The hash is an RFC 6920 named-information string, `ni:///sha-256;<digest>`, digest base64url
+    unpadded: the same bytes have the same string.
+
+    Parameters:
+        graph: RDF graph to add the identifier to
+        file_id: URI of the file, from `add_file_entity`
+        path: the file to read, as a path on this machine
+    """
+    # Streamed: a run's log or bag can be larger than memory.
+    with Path(path).open("rb") as file:
+        digest = hashlib.file_digest(file, "sha256").digest()
+    encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    graph.add((file_id, DCTERMS.identifier, Literal(f"ni:///sha-256;{encoded}")))
 
 
 def add_relative_location(graph: Graph, root: URIRef, rel_path: str) -> URIRef:
