@@ -328,10 +328,12 @@ def parse_git_repo_url(url: str) -> SplitResult:
             normalized = Path(url).resolve().as_uri()
         elif path.startswith("/"):
             # git@host:/srv/repo.git -> ssh://git@host/srv/repo.
-            normalized = f"ssh://{host}{path}".removesuffix(".git")
+            normalized = f"ssh://{host}{quote(path.removesuffix('.git'), safe='/')}"
         else:
             # git@host:org/repo.git -> https://host/org/repo.
-            normalized = f"https://{host.rpartition('@')[2]}/{path}".removesuffix(".git")
+            normalized = (
+                f"https://{host.rpartition('@')[2]}/{quote(path.removesuffix('.git'), safe='/')}"
+            )
     return urlsplit(normalized)
 
 
@@ -350,14 +352,16 @@ def get_pkg_url(
         name: distribution name of the package
         version: installed distribution version, if known
         origin: PEP 610 direct URL metadata, or an empty mapping for an index install
-        revision: source revision, optionally suffixed with ``-dirty``
+        revision: source revision without a dirty suffix
         repository: normalized source repository URL, if known
 
     Returns:
         Package URL as a URIRef, using the git, pypi or generic type
     """
-    # Dirty state stays in metadata: abc-dirty becomes @abc in the purl.
-    commit = revision.removesuffix("-dirty") if revision else None
+    vcs = origin.get("vcs_info", {}).get("vcs", "git")
+    if vcs != "git":
+        raise NotImplementedError(f"Unsupported version control system: {vcs}")
+    commit = revision
     source = parse_git_repo_url(repository) if repository else None
     # Editable/VCS install with a hosted origin: pkg:git/github.com/secorolab/rdflib@<commit>.
     if source and source.hostname and source.path.strip("/"):
@@ -417,57 +421,67 @@ def path_from_file_url(url: str) -> Path:
     return Path(url2pathname(f"//{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path))
 
 
-def get_git_info(path: Path) -> tuple[str | None, str | None]:
-    """Read the revision and repository of a checkout, for a source that is not a package.
+def get_git_info(path: Path) -> tuple[str | None, str | None, str | None, bool]:
+    """Read a checkout's revision, repository and relative source path.
 
     Parameters:
         path: any path inside the worktree; the repository owning it is the one read
 
     Returns:
-        Revision, suffixed `-dirty` when the worktree has changes, and repository
+        Revision, repository URL, POSIX subpath and dirty flag. The subpath is None
+        at the worktree root or without a worktree. Without a committed repository,
+        returns (None, None, None, False).
     """
     try:
-        repo = Repo(path, search_parent_directories=True)
-        # A repository without a commit has no HEAD to read.
-        commit = repo.head.commit.hexsha
-        if repo.is_dirty(untracked_files=True):
-            commit = f"{commit}-dirty"
-        remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
+        with Repo(path, search_parent_directories=True) as repo:
+            # A repository without a commit has no HEAD to read.
+            commit = repo.head.commit.hexsha
+            dirty = repo.is_dirty(untracked_files=True)
+            remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
+            subpath = None
+            if repo.working_tree_dir is not None:
+                relative = path.resolve().relative_to(Path(repo.working_tree_dir).resolve())
+                if relative != Path("."):
+                    subpath = relative.as_posix()
     except (InvalidGitRepositoryError, NoSuchPathError, ValueError, GitCommandError):
-        return None, None
-    return commit, parse_git_repo_url(remote).geturl() if remote else None
+        return None, None, None, False
+
+    return commit, parse_git_repo_url(remote).geturl() if remote else None, subpath, dirty
 
 
-def get_pkg_info(name: str) -> tuple[URIRef, str | None, str | None, str | None]:
+def get_pkg_info(name: str) -> tuple[URIRef, str | None, str | None, str | None, bool]:
     """Read off an installed package what describes it, from its metadata and its source.
 
     Parameters:
         name: distribution name of the package, e.g. `rdf_utils`
 
     Returns:
-        Package purl URIRef, version, revision and repository. Pass the package name
+        Package purl URIRef, version, revision, repository and dirty flag. Pass the package name
         separately to `load_pkg_prov`. Installation metadata determines the purl type.
     """
     try:
         package = distribution(name)
     except PackageNotFoundError:
-        return URIRef(f"pkg:generic/{quote(name, safe='')}"), None, None, None
+        return URIRef(f"pkg:generic/{quote(name, safe='')}"), None, None, None, False
 
     # PEP 610: pip records where a package was installed from, if not from an index.
     origin = json.loads(package.read_text("direct_url.json") or "{}")
 
     if origin.get("dir_info", {}).get("editable"):
-        revision, repository = get_git_info(path_from_file_url(origin["url"]))
+        project = path_from_file_url(origin["url"]) / origin.get("subdirectory", "")
+        revision, repository, subpath, dirty = get_git_info(project)
+        if revision is not None:
+            origin["subdirectory"] = subpath
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
-        return purl, package.version, revision, repository
+        return purl, package.version, revision, repository, dirty
 
     if "vcs_info" in origin:
         revision = origin["vcs_info"]["commit_id"]
         repository = parse_git_repo_url(origin["url"]).geturl()
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
-        return purl, package.version, revision, repository
+        return purl, package.version, revision, repository, False
 
-    return get_pkg_url(package.name, package.version, origin), package.version, None, None
+    return get_pkg_url(package.name, package.version, origin), package.version, None, None, False
 
 
 def load_pkg_prov(
@@ -479,6 +493,8 @@ def load_pkg_prov(
     repository: str | None = None,
     location: URIRef | None = None,
     additional_types: Iterable[URIRef] = (),
+    *,
+    dirty: bool,
 ) -> None:
     """Add a software package as a `prov:SoftwareAgent` and `spdx-sw:Package`, with schema.org terms.
 
@@ -492,6 +508,7 @@ def load_pkg_prov(
             ament name of a `ros:Package`, which is how its files are found
         version: package version, stored as `schema:softwareVersion`
         commit: revision identifier, stored as `schema:identifier`
+        dirty: append ``-dirty`` to the schema identifier for a modified checkout
         repository: URL of the source repository, stored as `schema:codeRepository`
         location: where its checkout is, e.g. an `add_relative_location` under the workspace,
             stored as `prov:atLocation`
@@ -502,7 +519,7 @@ def load_pkg_prov(
     if version is not None:
         graph.add((pkg_id, SDO.softwareVersion, Literal(version)))
     if commit is not None:
-        graph.add((pkg_id, SDO.identifier, Literal(commit)))
+        graph.add((pkg_id, SDO.identifier, Literal(f"{commit}-dirty" if dirty else commit)))
     if repository is not None:
         graph.add((pkg_id, SDO.codeRepository, URIRef(repository)))
     if location is not None:
