@@ -265,7 +265,7 @@ class ProvTest(unittest.TestCase):
             path = Path(root) / "frames.log"
             path.write_bytes(b"test")
             log = add_file_entity(self.graph, None, path)
-            add_file_hash(self.graph, log, path)
+            add_file_hash(self.graph, log)
         self.assertEqual(self.graph.value(log, DCTERMS.identifier), FILE_HASH)
 
     def test_file_is_named_by_its_location(self):

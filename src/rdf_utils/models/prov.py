@@ -115,19 +115,18 @@ def add_file_entity(
     return file_id
 
 
-def add_file_hash(graph: Graph, file_id: URIRef, path: str | Path) -> None:
-    """State the hash of the bytes at PATH as the file's `dcterms:identifier`.
+def add_file_hash(graph: Graph, file_id: URIRef) -> None:
+    """State the hash of a file's bytes as its `dcterms:identifier`, reading it from its location.
 
     The hash is an RFC 6920 named-information string, `ni:///sha-256;<digest>`, digest base64url
     unpadded: the same bytes have the same string.
 
     Parameters:
         graph: RDF graph to add the identifier to
-        file_id: URI of the file, from `add_file_entity`
-        path: the file to read, as a path on this machine
+        file_id: URI of the file, from `add_file_entity` on this graph
     """
     # Streamed: a run's log or bag can be larger than memory.
-    with Path(path).open("rb") as file:
+    with get_file_path(graph, file_id).open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").digest()
     encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     graph.add((file_id, DCTERMS.identifier, Literal(f"ni:///sha-256;{encoded}")))
