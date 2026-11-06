@@ -392,7 +392,7 @@ def get_pkg_url(
             qualifiers=qualifiers,
             subpath=origin.get("subdirectory"),
         )
-    # Currently, packageurl-python supports vaolidation for github link but not pure git
+    # packageurl-python does not yet support Git purl validation
     if purl.type != "git":
         errors = [
             message.message
