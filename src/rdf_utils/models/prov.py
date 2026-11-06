@@ -4,17 +4,19 @@
 import base64
 import hashlib
 import json
+import re
 import sys
 from collections.abc import Iterable
 from datetime import datetime
 from importlib import resources
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path, PurePath
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import SplitResult, quote, unquote, urljoin, urlsplit
 from urllib.request import url2pathname
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
+from packageurl import PackageURL, ValidationSeverity
 from rdflib import RDF, XSD, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 from rdflib.term import Node
@@ -125,8 +127,11 @@ def add_file_hash(graph: Graph, file_id: URIRef) -> None:
         graph: RDF graph to add the identifier to
         file_id: URI of the file, from `add_file_entity` on this graph
     """
+    path = get_file_path(graph, file_id)
+    if path is None:
+        raise ValueError(f"File entity '{file_id}' has no location")
     # Streamed: a run's log or bag can be larger than memory.
-    with get_file_path(graph, file_id).open("rb") as file:
+    with path.open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").digest()
     encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     graph.add((file_id, DCTERMS.identifier, Literal(f"ni:///sha-256;{encoded}")))
@@ -303,17 +308,96 @@ def add_activity(
         graph.add((activity_id, TIME.hasEnd, ended))
 
 
-def _repository_iri(url: str) -> str:
+def parse_git_repo_url(url: str) -> SplitResult:
+    """Normalize a Git remote or local checkout path and parse its URL.
+
+    Parameters:
+        url: repository URL, scp-style Git remote or local path
+
+    Returns:
+        Parsed repository URL, with remote ``.git`` suffixes removed
+    """
     if "://" in url:
-        return url if url.startswith("file:") else url.removesuffix(".git")
-    host, sep, path = url.partition(":")
-    # git reads [user@]host:path as scp syntax only with no slash before the colon (git-clone(1)).
-    if not sep or "/" in host or len(host) == 1:
-        return Path(url).resolve().as_uri()
-    if path.startswith("/"):
-        return f"ssh://{host}{path}".removesuffix(".git")
-    # A forge's git@host:owner/repo is served over https at the same path.
-    return f"https://{host.rpartition('@')[2]}/{path}".removesuffix(".git")
+        # https://host/org/repo.git -> https://host/org/repo; file: URLs stay unchanged.
+        normalized = url if url.startswith("file:") else url.removesuffix(".git")
+    else:
+        host, sep, path = url.partition(":")
+        # Git recognizes scp syntax only when no slash precedes the colon.
+        if not sep or "/" in host or len(host) == 1:
+            # /srv/repo.git -> file:///srv/repo.git (preserve local directory names).
+            normalized = Path(url).resolve().as_uri()
+        elif path.startswith("/"):
+            # git@host:/srv/repo.git -> ssh://git@host/srv/repo.
+            normalized = f"ssh://{host}{path}".removesuffix(".git")
+        else:
+            # git@host:org/repo.git -> https://host/org/repo.
+            normalized = f"https://{host.rpartition('@')[2]}/{path}".removesuffix(".git")
+    return urlsplit(normalized)
+
+
+def get_pkg_url(
+    name: str,
+    version: str | None,
+    origin: dict,
+    revision: str | None = None,
+    repository: str | None = None,
+) -> URIRef:
+    """Build a package URL from its recorded installation origin.
+
+    See [ECMA-427](https://github.com/Ecma-TC54/ECMA-427) for complete specification.
+
+    Parameters:
+        name: distribution name of the package
+        version: installed distribution version, if known
+        origin: PEP 610 direct URL metadata, or an empty mapping for an index install
+        revision: source revision, optionally suffixed with ``-dirty``
+        repository: normalized source repository URL, if known
+
+    Returns:
+        Package URL as a URIRef, using the git, pypi or generic type
+    """
+    # Dirty state stays in metadata: abc-dirty becomes @abc in the purl.
+    commit = revision.removesuffix("-dirty") if revision else None
+    source = parse_git_repo_url(repository) if repository else None
+    # Editable/VCS install with a hosted origin: pkg:git/github.com/secorolab/rdflib@<commit>.
+    if source and source.hostname and source.path.strip("/"):
+        host = source.hostname
+        if source.port is not None:
+            host += f":{source.port}"
+        purl = PackageURL(
+            type="git",
+            namespace=host,
+            name=unquote(source.path.strip("/")),
+            version=commit,
+            subpath=origin.get("subdirectory"),
+        )
+    else:
+        # Index: pkg:pypi/rdflib@7.6.0; direct install without a hosted Git origin: pkg:generic/...
+        package_type = "generic" if origin else "pypi"
+        package_name = name
+        if package_type == "pypi":
+            # PyPI normalization: My_Package.Name becomes my-package-name.
+            package_name = re.sub(r"[-_.]+", "-", package_name).lower()
+        qualifiers = {}
+        if repository:
+            qualifiers["vcs_url"] = f"git+{repository}" + (f"@{commit}" if commit else "")
+        purl = PackageURL(
+            type=package_type,
+            name=package_name,
+            version=version,
+            qualifiers=qualifiers,
+            subpath=origin.get("subdirectory"),
+        )
+    # Currently, packageurl-python supports vaolidation for github link but not pure git
+    if purl.type != "git":
+        errors = [
+            message.message
+            for message in purl.validate()
+            if message.severity == ValidationSeverity.ERROR
+        ]
+        if errors:
+            raise ValueError("Invalid package URL: " + "; ".join(errors))
+    return URIRef(purl.to_string())
 
 
 def path_from_file_url(url: str) -> Path:
@@ -351,41 +435,39 @@ def get_git_info(path: Path) -> tuple[str | None, str | None]:
         remote = next((url for r in repo.remotes if r.name == "origin" for url in r.urls), None)
     except (InvalidGitRepositoryError, NoSuchPathError, ValueError, GitCommandError):
         return None, None
-    return commit, _repository_iri(remote) if remote else None
+    return commit, parse_git_repo_url(remote).geturl() if remote else None
 
 
-def get_pkg_info(name: str) -> tuple[str, str | None, str | None, str | None]:
+def get_pkg_info(name: str) -> tuple[URIRef, str | None, str | None, str | None]:
     """Read off an installed package what describes it, from its metadata and its source.
 
     Parameters:
         name: distribution name of the package, e.g. `rdf_utils`
 
     Returns:
-        Name, version, revision and repository, in the order `load_pkg_prov` takes them
+        Package purl URIRef, version, revision and repository. Pass the package name
+        separately to `load_pkg_prov`. Installation metadata determines the purl type.
     """
     try:
         package = distribution(name)
     except PackageNotFoundError:
-        return name, None, None, None
+        return URIRef(f"pkg:generic/{quote(name, safe='')}"), None, None, None
 
     # PEP 610: pip records where a package was installed from, if not from an index.
     origin = json.loads(package.read_text("direct_url.json") or "{}")
 
-    # dir_info, editable: `pip install -e <path>` or `-e git+<url>`; the checkout is the code.
     if origin.get("dir_info", {}).get("editable"):
-        return package.name, package.version, *get_git_info(path_from_file_url(origin["url"]))
+        revision, repository = get_git_info(path_from_file_url(origin["url"]))
+        purl = get_pkg_url(package.name, package.version, origin, revision, repository)
+        return purl, package.version, revision, repository
 
-    # vcs_info: installed, not editable, from a VCS URL, `pip install git+<url>[@<ref>]`.
     if "vcs_info" in origin:
-        return (
-            package.name,
-            package.version,
-            origin["vcs_info"]["commit_id"],
-            _repository_iri(origin["url"]),
-        )
+        revision = origin["vcs_info"]["commit_id"]
+        repository = parse_git_repo_url(origin["url"]).geturl()
+        purl = get_pkg_url(package.name, package.version, origin, revision, repository)
+        return purl, package.version, revision, repository
 
-    # An index install, or a copy of a directory whose checkout may have moved on since.
-    return package.name, package.version, None, None
+    return get_pkg_url(package.name, package.version, origin), package.version, None, None
 
 
 def load_pkg_prov(

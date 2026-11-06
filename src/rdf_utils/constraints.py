@@ -43,6 +43,6 @@ def check_shacl_constraints(graph: Graph, shacl_dict: dict[str, str], quiet: boo
     )
 
     if not conforms and not quiet:
-        raise SHACLViolation(report_text)
+        raise SHACLViolation(str(report_text))
 
     return conforms

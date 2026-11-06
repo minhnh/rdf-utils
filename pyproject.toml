@@ -26,6 +26,7 @@ dependencies = [
   "pyshacl",
   "platformdirs",
   "GitPython",
+  "packageurl-python",
 ]
 [project.optional-dependencies]
 all = [

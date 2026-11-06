@@ -14,7 +14,7 @@ def iri_parent(value: URIRef | str) -> URIRef:
     if parsed.fragment:
         return URIRef(urlunsplit(parsed._replace(query="", fragment="")))
 
-    parent, separator, _name = parsed.path.rstrip("/").rpartition("/")
+    parent, separator, _ = parsed.path.rstrip("/").rpartition("/")
     if not separator:
         raise ValueError(f"IRI has no parent path: {value}")
     return URIRef(urlunsplit(parsed._replace(path=parent or "/", query="", fragment="")))
