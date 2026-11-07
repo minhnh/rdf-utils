@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from packageurl import PackageURL, ValidationSeverity
-from rdflib import RDF, XSD, Graph, Literal, URIRef
+from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 from rdflib.term import Node
 
@@ -167,16 +167,23 @@ def add_relative_location(graph: Graph, root: URIRef, rel_path: str) -> URIRef:
     return location
 
 
-def create_bundle(agent_id: URIRef) -> Graph:
-    """A named graph for one tool's provenance: a `prov:Bundle` named `urn:uuid:`, attributed to it.
+def create_bundle(dataset: Dataset, agent_id: URIRef) -> URIRef:
+    """Add a new bundle to a dataset: a named graph holding one tool's provenance.
+
+    The bundle is a `prov:Bundle` named by a fresh `urn:uuid:` and attributed to the tool.
 
     Parameters:
-        agent_id: URI of the agent that writes the bundle, stored as `prov:wasAttributedTo`
+        dataset: the dataset to add the bundle to
+        agent_id: URI of the tool writing the bundle, stored as `prov:wasAttributedTo`
+
+    Returns:
+        URI of the bundle; `dataset.graph(bundle_id)` is the graph to add its provenance to
     """
-    bundle = Graph(identifier=URIRef(uuid4().urn))
-    bundle.add((bundle.identifier, RDF.type, PROV.Bundle))
-    bundle.add((bundle.identifier, PROV.wasAttributedTo, agent_id))
-    return bundle
+    bundle_id = URIRef(uuid4().urn)
+    bundle = dataset.graph(bundle_id)
+    bundle.add((bundle_id, RDF.type, PROV.Bundle))
+    bundle.add((bundle_id, PROV.wasAttributedTo, agent_id))
+    return bundle_id
 
 
 def resolve_location(graph: Graph, location: Node) -> URIRef:
