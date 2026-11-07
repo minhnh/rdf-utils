@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from git import Repo
 from packageurl import ValidationSeverity
-from rdflib import RDF, XSD, Graph, Literal, URIRef
+from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
@@ -274,12 +274,14 @@ class ProvTest(unittest.TestCase):
         self.assertIsNone(self.graph.value(TRANSFORM, PROV.endedAtTime))
         check_shacl_constraints(self.graph, SHACL)
 
-    def test_bundle_is_a_named_graph_attributed_to_its_tool(self):
-        bundle = create_bundle(PKG)
-        self.assertTrue(str(bundle.identifier).startswith("urn:uuid:"))
-        self.assertNotEqual(bundle.identifier, create_bundle(PKG).identifier)
-        self.assertIn((bundle.identifier, RDF.type, PROV.Bundle), bundle)
-        self.assertIn((bundle.identifier, PROV.wasAttributedTo, PKG), bundle)
+    def test_bundle_is_a_named_graph_in_the_dataset_attributed_to_its_tool(self):
+        dataset = Dataset()
+        bundle_id = create_bundle(dataset, PKG)
+        bundle = dataset.graph(bundle_id)
+        self.assertTrue(str(bundle_id).startswith("urn:uuid:"))
+        self.assertNotEqual(bundle_id, create_bundle(dataset, PKG))
+        self.assertIn((bundle_id, RDF.type, PROV.Bundle), bundle)
+        self.assertIn((bundle_id, PROV.wasAttributedTo, PKG), bundle)
         load_pkg_prov(bundle, PKG, "motion-spec", dirty=False)
         check_shacl_constraints(bundle, SHACL)
 
