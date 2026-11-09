@@ -85,6 +85,7 @@ class IHasNamespaceDeclare(IHasNamespace):
 
     name: str
     ns_prefix: str
+    uri: URIRef
     _ns_obj: Namespace
 
     def __init__(self, *, parent: Any, ns: NamespaceDeclare, name: str, **kwargs) -> None:
@@ -99,14 +100,11 @@ class IHasNamespaceDeclare(IHasNamespace):
             raise ValueError(f"Invalid 'name' for namespace declaration: {self.name}")
 
         self._ns_obj = Namespace(self.ns.uri)
+        self.uri = self._ns_obj[self.name]
 
     @property
     def namespace(self) -> Namespace:
         return self._ns_obj
-
-    @property
-    def uri(self) -> URIRef:
-        return self._ns_obj[self.name]
 
     def __str__(self) -> str:
         return f"<({self.__class__.__name__}) {self.ns_prefix}:{self.name}>"
