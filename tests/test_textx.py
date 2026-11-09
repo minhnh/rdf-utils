@@ -29,18 +29,25 @@ def test_model_paths_include_root_and_imports_once(tmp_path):
 
 @pytest.mark.parametrize("model_class", [IHasParent, IHasUUID, IHasNamespace])
 def test_mixins_require_parent(model_class):
-    with pytest.raises(ValueError, match="parent"):
+    with pytest.raises(TypeError, match="parent"):
         model_class()
+    with pytest.raises(ValueError, match="parent"):
+        model_class(parent=None)
 
 
 def test_uuid_mixin_preserves_parent_and_assigns_distinct_ids():
-    parent = object()
+    parent = IHasNamespaceDeclare(
+        parent=object(), name="scene", ns=SimpleNamespace(name="ex", uri="urn:example:")
+    )
     first, second = IHasUUID(parent=parent), IHasUUID(parent=parent)
     assert first.parent is parent
+    assert isinstance(first, IInheritNamespace)
+    assert first.namespace is parent.namespace
     assert isinstance(first.uuid, UUID)
     assert first.uuid != second.uuid
-    with pytest.raises(NotImplementedError):
-        _ = first.uri
+    assert first.uri == parent.namespace[str(first.uuid)]
+    assert first.uri is first.uri
+    assert first.uri != second.uri
 
 
 def test_namespace_declaration_exposes_namespace_and_uri():

@@ -2,6 +2,7 @@
 """Common textX model mixins and file discovery, without a textX dependency."""
 
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -35,8 +36,8 @@ def iter_model_paths(model: Any) -> Iterator[Path]:
 class IHasParent:
     """Require the parent supplied by a textX model constructor."""
 
-    def __init__(self, **kwargs) -> None:
-        self.parent = kwargs.get("parent", None)
+    def __init__(self, *, parent: Any, **kwargs) -> None:
+        self.parent = parent
         if self.parent is None:
             raise ValueError(f"'parent' not handled for type '{self.__class__.__name__}'")
 
@@ -61,23 +62,41 @@ class IInheritNamespace(IHasNamespace):
         return self.parent.namespace
 
 
+@dataclass(kw_only=True)
+class NamespaceDeclare:
+    """A named namespace URI, constructed with keyword arguments supplied by textX.
+
+    Parameters:
+        parent: Containing model, excluded from representation and equality comparisons.
+        name: Namespace prefix used in model references.
+        uri: Namespace URI.
+    """
+
+    parent: Any = field(repr=False, compare=False)
+    name: str
+    uri: str
+
+
 class IHasNamespaceDeclare(IHasNamespace):
-    """Root of a namespace: everything below it mints IRIs under `ns`."""
+    """Link a named model element to a `NamespaceDeclare` through `ns`.
+
+    Its namespace is `ns.uri`, and its IRI is that namespace followed by its name.
+    """
 
     name: str
     ns_prefix: str
     _ns_obj: Namespace
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.ns = kwargs.get("ns", None)
+    def __init__(self, *, parent: Any, ns: NamespaceDeclare, name: str, **kwargs) -> None:
+        super().__init__(parent=parent, **kwargs)
+        self.ns = ns
         if self.ns is None:
             raise ValueError("Namespace declaration requires 'ns'")
         self.ns_prefix = self.ns.name
 
-        self.name = kwargs.get("name", None)
-        if self.name is None:
-            raise ValueError("Namespace declaration requires 'name'")
+        self.name = name
+        if not self.name or not self.name.strip():
+            raise ValueError(f"Invalid 'name' for namespace declaration: {self.name}")
 
         self._ns_obj = Namespace(self.ns.uri)
 
@@ -93,15 +112,21 @@ class IHasNamespaceDeclare(IHasNamespace):
         return f"<({self.__class__.__name__}) {self.ns_prefix}:{self.name}>"
 
 
-class IHasUUID(IHasParent):
-    """Assign a fresh UUID; subclasses define how it becomes an IRI."""
+class IHasUUID(IInheritNamespace):
+    """Assign a fresh UUID and form its IRI in the inherited namespace."""
 
     uuid: UUID
+    _uri: URIRef | None
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, *, parent: IHasNamespace, **kwargs) -> None:
+        super().__init__(parent=parent, **kwargs)
         self.uuid = uuid4()
+        self._uri = None
 
     @property
     def uri(self) -> URIRef:
-        raise NotImplementedError(f"'uri' property not implemented for '{self.__class__.__name__}'")
+        if self._uri is not None:
+            return self._uri
+
+        self._uri = self.namespace[str(self.uuid)]
+        return self._uri
