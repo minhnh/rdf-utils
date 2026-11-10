@@ -127,15 +127,7 @@ def add_import_prov(
             if info.purl in roots.values():
                 raise ValueError(f"{info.purl} already identifies another import-package directory")
 
-            load_pkg_prov(
-                graph,
-                info.purl,
-                package,
-                info.version,
-                info.revision,
-                info.repository,
-                dirty=info.dirty,
-            )
+            load_pkg_prov(graph, info)
             roots[directory] = info.purl
 
     selected = None

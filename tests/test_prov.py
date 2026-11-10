@@ -87,12 +87,14 @@ class ProvTest(unittest.TestCase):
         add_wall_instant(self.graph, self.end, self.t1)
         load_pkg_prov(
             self.graph,
-            PKG,
-            "motion-spec",
-            version="0.1.0",
-            commit="0123abcd",
-            repository="https://github.com/secorolab/motion-spec",
-            dirty=False,
+            PackageInfo(
+                purl=PKG,
+                name="motion-spec",
+                version="0.1.0",
+                revision="0123abcd",
+                repository="https://github.com/secorolab/motion-spec",
+                dirty=False,
+            ),
         )
         # What the activities use is the caller's to type.
         add_entity(self.graph, SPEC)
@@ -120,15 +122,7 @@ class ProvTest(unittest.TestCase):
         # Only an editable or a git install, not CI's `pip install .`, has a source to read.
         if info.revision is not None:
             self.assertRegex(info.revision, REVISION)
-        load_pkg_prov(
-            self.graph,
-            info.purl,
-            "rdf_utils",
-            info.version,
-            info.revision,
-            info.repository,
-            dirty=info.dirty,
-        )
+        load_pkg_prov(self.graph, info)
         installed = info.purl
         self.assertIn((installed, SDO.softwareVersion, Literal(info.version)), self.graph)
         if info.repository is not None:
@@ -295,7 +289,9 @@ class ProvTest(unittest.TestCase):
 
     def test_pkg_info_of_a_package_that_is_not_installed(self):
         missing = "rdf-utils-no-such-distribution"
-        self.assertEqual(get_pkg_info(missing), PackageInfo(purl=URIRef(f"pkg:generic/{missing}")))
+        self.assertEqual(
+            get_pkg_info(missing), PackageInfo(name=missing, purl=URIRef(f"pkg:generic/{missing}"))
+        )
 
     def test_transformation(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.start, self.end)
@@ -316,7 +312,7 @@ class ProvTest(unittest.TestCase):
         self.assertNotEqual(bundle_id, create_bundle(dataset, PKG))
         self.assertIn((bundle_id, RDF.type, PROV.Bundle), bundle)
         self.assertIn((bundle_id, PROV.wasAttributedTo, PKG), bundle)
-        load_pkg_prov(bundle, PKG, "motion-spec", dirty=False)
+        load_pkg_prov(bundle, PackageInfo(purl=PKG, name="motion-spec", dirty=False))
         check_shacl_constraints(bundle, SHACL)
 
     def test_agent_kinds(self):
@@ -416,12 +412,14 @@ class ProvTest(unittest.TestCase):
         workspace = add_directory_location(self.graph, "/tmp/ws")
         load_pkg_prov(
             self.graph,
-            REPO,
-            "my-models",
-            commit="0123abcd",
-            repository="https://example.org/my-models",
+            PackageInfo(
+                purl=REPO,
+                name="my-models",
+                revision="0123abcd",
+                repository="https://example.org/my-models",
+                dirty=False,
+            ),
             location=add_relative_location(self.graph, workspace, "src/my-models/"),
-            dirty=False,
         )
         scene = add_file_entity(self.graph, REPO, "scenes/table.scenex")
         self.assertEqual(
@@ -447,7 +445,7 @@ class ProvTest(unittest.TestCase):
                 patch.dict(sys.path_importer_cache),
             ):
                 package = URIRef("urn:test:scene_pkg")
-                load_pkg_prov(self.graph, package, "scene_pkg", dirty=False)
+                load_pkg_prov(self.graph, PackageInfo(purl=package, name="scene_pkg", dirty=False))
                 table = add_file_entity(self.graph, package, "models/table.xml")
                 self.assertEqual(
                     get_file_path(self.graph, table),
@@ -555,7 +553,11 @@ def test_import_package_info_uses_owning_distribution():
     ):
         info = get_pkg_info("yaml")
     lookup.assert_called_once_with("PyYAML")
+    assert info.name == "yaml"
     assert info.distrib_name == package.name
+    graph = Graph()
+    load_pkg_prov(graph, info)
+    assert graph.value(info.purl, SDO.name) == Literal(info.name)
     assert info.version == package.version
     assert info.purl == URIRef("pkg:pypi/pyyaml@1.2")
 

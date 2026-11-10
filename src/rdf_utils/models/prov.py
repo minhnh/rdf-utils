@@ -462,6 +462,7 @@ class PackageInfo:
     """Installed distribution identity and source metadata.
 
     Parameters:
+        name: Python import or ROS package name used to resolve resources.
         purl: Package URL identifying the distribution or a generic fallback.
         distrib_name: Installed distribution name, or None when unknown.
         version: Installed version, when available.
@@ -471,6 +472,7 @@ class PackageInfo:
         directory: Resolved import package directory, or None for unavailable/non-filesystem packages.
     """
 
+    name: str
     purl: URIRef
     distrib_name: str | None = None
     version: str | None = None
@@ -484,7 +486,8 @@ def get_pkg_info(name: str) -> PackageInfo:
     """Read distribution metadata and source identity for a Python import package.
 
     Parameters:
-        name: Python import name, resolved to its owning distribution through installed metadata.
+        name: Python import name, e.g. `scene_dsl`, not the distribution name `scene-dsl`.
+              Resolved to its owning distribution through installed metadata.
 
     Returns:
         Package identity and metadata, with a generic identity when no distribution is found.
@@ -513,7 +516,9 @@ def get_pkg_info(name: str) -> PackageInfo:
     try:
         package = distribution(lookup)
     except PackageNotFoundError:
-        return PackageInfo(purl=URIRef(f"pkg:generic/{quote(name, safe='')}"), directory=directory)
+        return PackageInfo(
+            name=name, purl=URIRef(f"pkg:generic/{quote(name, safe='')}"), directory=directory
+        )
 
     # PEP 610: pip records where a package was installed from, if not from an index.
     origin = json.loads(package.read_text("direct_url.json") or "{}")
@@ -524,6 +529,7 @@ def get_pkg_info(name: str) -> PackageInfo:
             origin["subdirectory"] = subpath
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
         return PackageInfo(
+            name=name,
             purl=purl,
             distrib_name=package.name,
             version=package.version,
@@ -538,6 +544,7 @@ def get_pkg_info(name: str) -> PackageInfo:
         repository = parse_git_repo_url(origin["url"]).geturl()
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
         return PackageInfo(
+            name=name,
             purl=purl,
             distrib_name=package.name,
             version=package.version,
@@ -547,6 +554,7 @@ def get_pkg_info(name: str) -> PackageInfo:
         )
 
     return PackageInfo(
+        name=name,
         purl=get_pkg_url(package.name, package.version, origin),
         distrib_name=package.name,
         version=package.version,
@@ -556,44 +564,33 @@ def get_pkg_info(name: str) -> PackageInfo:
 
 def load_pkg_prov(
     graph: Graph,
-    pkg_id: URIRef,
-    name: str,
-    version: str | None = None,
-    commit: str | None = None,
-    repository: str | None = None,
+    info: PackageInfo,
+    *,
     location: URIRef | None = None,
     additional_types: Iterable[URIRef] = (),
-    *,
-    dirty: bool,
 ) -> None:
-    """Add a software package as a `prov:SoftwareAgent` and `spdx-sw:Package`, with schema.org terms.
+    """Record a package's software identity and source metadata.
 
-    The package is also a `prov:Location`, the root to pass to `add_file_entity` for its files.
-    Without LOCATION its files are found by its name, as `resolve_location` describes.
+    The package is also a `prov:Location` for relative files. Without an explicit location,
+    `resolve_location` finds resources using info.name, the Python import or ROS package name.
 
     Parameters:
-        graph: RDF graph to add the package to
-        pkg_id: URI of the package
-        name: package name, stored as `schema:name`; the import name of a Python package, the
-            ament name of a `ros:Package`, which is how its files are found
-        version: package version, stored as `schema:softwareVersion`
-        commit: revision identifier, stored as `schema:identifier`
-        dirty: append ``-dirty`` to the schema identifier for a modified checkout
-        repository: URL of the source repository, stored as `schema:codeRepository`
-        location: where its checkout is, e.g. an `add_relative_location` under the workspace,
-            stored as `prov:atLocation`
-        additional_types: its kinds besides those, e.g. `ros:Package`
+        graph: RDF graph receiving provenance.
+        info: Package identity and metadata, obtained from `get_pkg_info` or constructed directly.
+        location: Optional location of the package, stored as `prov:atLocation`.
+        additional_types: Additional package types, e.g. `ros:Package`.
     """
     types = (PROV.SoftwareAgent, URI_SPDX_SW_TYPE_PACKAGE, PROV.Location, *additional_types)
-    add_agent(graph, pkg_id, types, name)
-    if version is not None:
-        graph.add((pkg_id, SDO.softwareVersion, Literal(version)))
-    if commit is not None:
-        graph.add((pkg_id, SDO.identifier, Literal(f"{commit}-dirty" if dirty else commit)))
-    if repository is not None:
-        graph.add((pkg_id, SDO.codeRepository, URIRef(repository)))
+    add_agent(graph, info.purl, types, info.name)
+    if info.version is not None:
+        graph.add((info.purl, SDO.softwareVersion, Literal(info.version)))
+    if info.revision is not None:
+        revision = f"{info.revision}-dirty" if info.dirty else info.revision
+        graph.add((info.purl, SDO.identifier, Literal(revision)))
+    if info.repository is not None:
+        graph.add((info.purl, SDO.codeRepository, URIRef(info.repository)))
     if location is not None:
-        graph.add((pkg_id, PROV.atLocation, location))
+        graph.add((info.purl, PROV.atLocation, location))
 
 
 def load_transformation_prov(
