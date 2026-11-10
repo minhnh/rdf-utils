@@ -3,34 +3,142 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from importlib import resources, util
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from rdflib import Namespace, URIRef
+from rdflib import Graph, Namespace, URIRef
+
+from rdf_utils.models.prov import (
+    add_directory_location,
+    add_file_entity,
+    add_file_hash,
+    get_pkg_info,
+    load_pkg_prov,
+)
 
 
-def iter_model_paths(model: Any) -> Iterator[Path]:
-    """Yield distinct file paths for a textX model and its loaded import repository.
+def package_import(import_uri: str) -> str:
+    """Resolve `<package>:<path>` to an installed asset; leave other imports unchanged."""
+    package, colon, path = import_uri.partition(":")
+    if not colon or not package.isidentifier():
+        return import_uri
+
+    spec = util.find_spec(package)
+    if spec is None or spec.submodule_search_locations is None:
+        return import_uri
+
+    # shortcut: filesystem installs only; ZIP resources need a caller-owned extraction context.
+    with resources.as_file(resources.files(package) / path) as asset:
+        return str(asset)
+
+
+def iter_model_paths(model: Any) -> Iterator[tuple[Path, str | None, Path | None]]:
+    """Yield resolved paths, original import strings and importer paths.
+
+    Yield the root first, then distinct import relationships in repository order.
+    A file may appear more than once when imported through different relationships.
 
     Parameters:
-        model: A textX model; in-memory models without filenames are skipped.
+        model: A textX model; models without filenames are skipped.
 
-    Returns:
-        Resolved paths, with the root model first when it has a filename.
+    Yields:
+        Tuples of (path, import_uri, importer):
+            path: Absolute, resolved path of the loaded model file.
+            import_uri: Original textX import string, such as "lab.scene" or
+                "scene_dsl:robots/kinova.ktree"; None for the root model.
+            importer: Absolute path of the model containing that import;
+                None for the root model.
     """
     repository = getattr(model, "_tx_model_repository", None)
     models = [model]
     if repository is not None:
         models.extend(repository.all_models)
+
+    root = getattr(model, "_tx_filename", None)
+    if root is not None:
+        yield Path(root).resolve(), None, None
+
     seen = set()
     for loaded in models:
         filename = getattr(loaded, "_tx_filename", None)
-        if filename is not None:
-            path = Path(filename).resolve()
-            if path not in seen:
-                seen.add(path)
-                yield path
+        importer = Path(filename).resolve() if filename is not None else None
+        for declaration in getattr(loaded, "imports", ()):
+            for imported in getattr(declaration, "_tx_loaded_models", ()):
+                filename = getattr(imported, "_tx_filename", None)
+                if filename is None:
+                    continue
+
+                entry = (Path(filename).resolve(), declaration.importURI, importer)
+                if entry not in seen:
+                    seen.add(entry)
+                    yield entry
+
+
+def add_import_prov(
+    graph: Graph,
+    path: Path,
+    import_uri: str | None,
+    *,
+    roots: dict[Path, URIRef],
+) -> URIRef:
+    """Record a model file's relative location and hash under a directory or package root.
+
+    Parameters:
+        graph: Graph receiving provenance.
+        path: Resolved model file path from `iter_model_paths`.
+        import_uri: Original import string, or None for the root model.
+        roots: Shared directory-to-identity map; roots must resolve to local files for hashing.
+
+    Returns:
+        File entity URI. Files outside known roots receive a new directory root.
+
+    Raises:
+        FileNotFoundError: When a source file is missing during hashing.
+        OSError: When a source file cannot be read.
+    """
+    path = Path(path).resolve()
+
+    # Add root directory
+    if import_uri is None:
+        if path.parent not in roots:
+            roots[path.parent] = add_directory_location(graph, path.parent)
+
+    elif package_import(import_uri) != import_uri:
+        package = import_uri.partition(":")[0]
+        with resources.as_file(resources.files(package)) as pkg_dir:
+            directory = pkg_dir.resolve()
+        if directory not in roots or not roots[directory].startswith("pkg:"):
+            pkg_id, version, revision, repository, dirty = get_pkg_info(package)
+            load_pkg_prov(graph, pkg_id, package, version, revision, repository, dirty=dirty)
+            roots[directory] = pkg_id
+
+    selected = None
+    best_rank = (False, -1)
+    for directory, identity in roots.items():
+        if not path.is_relative_to(directory):
+            continue
+
+        # Prefer package roots, then depth; keep directory roots as a fallback.
+        rank = identity.startswith("pkg:"), len(directory.parts)
+        if rank <= best_rank:
+            continue
+
+        selected = directory, identity
+        best_rank = rank
+
+    if selected is None:
+        directory = path.parent
+        identity = add_directory_location(graph, directory)
+        roots[directory] = identity
+    else:
+        directory, identity = selected
+
+    file_id = add_file_entity(graph, identity, path.relative_to(directory))
+    add_file_hash(graph, file_id)
+
+    return file_id
 
 
 class IHasParent:
