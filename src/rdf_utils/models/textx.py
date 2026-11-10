@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 """Common textX model mixins and file discovery, without a textX dependency."""
 
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from importlib import resources, util
@@ -43,7 +44,7 @@ def package_import(import_uri: str) -> str:
 def iter_model_paths(model: Any) -> Iterator[tuple[Path, str | None, Path | None]]:
     """Yield resolved paths, original import strings and importer paths.
 
-    Yield the root first, then distinct import relationships in repository order.
+    Yield the root first, then traverse loaded imports breadth first, including nested imports.
     A file may appear more than once when imported through different relationships.
 
     Parameters:
@@ -57,28 +58,32 @@ def iter_model_paths(model: Any) -> Iterator[tuple[Path, str | None, Path | None
             importer: Absolute path of the model containing that import;
                 None for the root model.
     """
-    repository = getattr(model, "_tx_model_repository", None)
-    models = [model]
-    if repository is not None:
-        models.extend(repository.all_models)
-
     root = getattr(model, "_tx_filename", None)
     if root is not None:
         yield Path(root).resolve(), None, None
 
-    seen = set()
-    for loaded in models:
+    pending_models = deque([model])
+    traversed_models = set()
+    yielded_imports = set()
+    while pending_models:
+        loaded = pending_models.popleft()
+        if id(loaded) in traversed_models:
+            continue
+        traversed_models.add(id(loaded))
+
         filename = getattr(loaded, "_tx_filename", None)
         importer = Path(filename).resolve() if filename is not None else None
         for declaration in getattr(loaded, "imports", ()):
             for imported in getattr(declaration, "_tx_loaded_models", ()):
+                pending_models.append(imported)
+
                 filename = getattr(imported, "_tx_filename", None)
                 if filename is None:
                     continue
 
                 entry = (Path(filename).resolve(), declaration.importURI, importer)
-                if entry not in seen:
-                    seen.add(entry)
+                if entry not in yielded_imports:
+                    yielded_imports.add(entry)
                     yield entry
 
 

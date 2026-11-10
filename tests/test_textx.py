@@ -100,7 +100,6 @@ def test_model_paths_preserve_shared_and_cyclic_imports(tmp_path):
     first.imports = imports(shared)
     second.imports = imports(shared)
     shared.imports = imports(root)
-    root._tx_model_repository = SimpleNamespace(all_models=[shared, second, first, root])
     entries = list(iter_model_paths(root))
     known = set()
     for path, import_uri, importer in entries:
