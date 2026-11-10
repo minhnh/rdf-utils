@@ -20,7 +20,11 @@ from rdf_utils.models.prov import (
 
 
 def package_import(import_uri: str) -> str:
-    """Resolve `<package>:<path>` to an installed asset; leave other imports unchanged."""
+    """Resolve `<package>:<path>` to an installed asset; leave other imports unchanged.
+
+    Raises:
+        NotImplementedError: When the package resources are not filesystem-backed.
+    """
     package, colon, path = import_uri.partition(":")
     if not colon or not package.isidentifier():
         return import_uri
@@ -29,8 +33,10 @@ def package_import(import_uri: str) -> str:
     if spec is None or spec.submodule_search_locations is None:
         return import_uri
 
-    # shortcut: filesystem installs only; ZIP resources need a caller-owned extraction context.
-    with resources.as_file(resources.files(package) / path) as asset:
+    directory = resources.files(package)
+    if not isinstance(directory, Path):
+        raise NotImplementedError("Package imports require filesystem-backed resources")
+    with resources.as_file(directory / path) as asset:
         return str(asset)
 
 
@@ -102,12 +108,7 @@ def add_import_prov(
     """
     path = Path(path).resolve()
 
-    # Add root directory
-    if import_uri is None:
-        if path.parent not in roots:
-            roots[path.parent] = add_directory_location(graph, path.parent)
-
-    elif package_import(import_uri) != import_uri:
+    if import_uri is not None and package_import(import_uri) != import_uri:
         package = import_uri.partition(":")[0]
         with resources.as_file(resources.files(package)) as pkg_dir:
             directory = pkg_dir.resolve()

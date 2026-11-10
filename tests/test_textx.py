@@ -218,3 +218,25 @@ def test_missing_sources_keep_locations_only_when_requested(tmp_path, wrapper):
     for entity in entities:
         assert graph.value(entity, PROV.atLocation) is not None
         assert graph.value(entity, DCTERMS.identifier) is None
+
+
+def test_root_model_preserves_supplied_ancestor_root(tmp_path):
+    from rdflib import Graph, URIRef
+    from rdflib.namespace import PROV
+
+    from rdf_utils.models.prov import add_directory_location, get_file_path
+    from rdf_utils.models.textx import add_import_prov
+
+    source = tmp_path / "models" / "root.scene"
+    source.parent.mkdir()
+    source.write_text("example")
+    graph = Graph()
+    root_id = add_directory_location(graph, tmp_path)
+    roots = {tmp_path: root_id}
+    file_id = add_import_prov(graph, source, None, roots=roots)
+    assert roots == {tmp_path: root_id}
+    location = graph.value(file_id, PROV.atLocation)
+    assert graph.value(location, PROV.atLocation) == root_id
+    relocated = tmp_path / "relocated"
+    graph.set((root_id, PROV.atLocation, URIRef(relocated.as_uri() + "/")))
+    assert get_file_path(graph, file_id) == relocated / source.relative_to(tmp_path)
