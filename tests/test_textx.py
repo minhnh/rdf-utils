@@ -194,3 +194,27 @@ def test_model_provenance_records_root_and_imports_with_shared_roots(tmp_path):
         assert all(graph.value(entity, DCTERMS.identifier) is not None for entity in entities)
         if roots is not None:
             assert tmp_path in roots
+
+
+@pytest.mark.parametrize("wrapper", [False, True])
+def test_missing_sources_keep_locations_only_when_requested(tmp_path, wrapper):
+    from rdflib import Graph
+    from rdflib.namespace import DCTERMS, PROV
+
+    from rdf_utils.models.textx import add_import_prov, add_model_prov
+
+    path = tmp_path / "missing.scene"
+    model = SimpleNamespace(_tx_filename=str(path))
+    graph = Graph()
+    if wrapper:
+        with pytest.raises(FileNotFoundError):
+            add_model_prov(graph, model)
+        entities = add_model_prov(graph, model, allow_missing=True)
+    else:
+        with pytest.raises(FileNotFoundError):
+            add_import_prov(graph, path, None, roots={})
+        entities = {add_import_prov(graph, path, None, roots={}, allow_missing=True)}
+    assert entities
+    for entity in entities:
+        assert graph.value(entity, PROV.atLocation) is not None
+        assert graph.value(entity, DCTERMS.identifier) is None

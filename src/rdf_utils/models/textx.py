@@ -82,6 +82,7 @@ def add_import_prov(
     import_uri: str | None,
     *,
     roots: dict[Path, URIRef],
+    allow_missing: bool = False,
 ) -> URIRef:
     """Record a model file's relative location and hash under a directory or package root.
 
@@ -90,12 +91,13 @@ def add_import_prov(
         path: Resolved model file path from `iter_model_paths`.
         import_uri: Original import string, or None for the root model.
         roots: Shared directory-to-identity map; roots must resolve to local files for hashing.
+        allow_missing: Keep file locations without hashes when source files are missing.
 
     Returns:
         File entity URI. Files outside known roots receive a new directory root.
 
     Raises:
-        FileNotFoundError: When a source file is missing during hashing.
+        FileNotFoundError: When a source file is missing during hashing and allow_missing is False.
         OSError: When a source file cannot be read.
     """
     path = Path(path).resolve()
@@ -136,13 +138,21 @@ def add_import_prov(
         directory, identity = selected
 
     file_id = add_file_entity(graph, identity, path.relative_to(directory))
-    add_file_hash(graph, file_id)
+    try:
+        add_file_hash(graph, file_id)
+    except FileNotFoundError:
+        if not allow_missing:
+            raise
 
     return file_id
 
 
 def add_model_prov(
-    graph: Graph, model: Any, *, roots: dict[Path, URIRef] | None = None
+    graph: Graph,
+    model: Any,
+    *,
+    roots: dict[Path, URIRef] | None = None,
+    allow_missing: bool = False,
 ) -> set[URIRef]:
     """Record source file locations and hashes for a loaded textX model and its imports.
 
@@ -150,17 +160,18 @@ def add_model_prov(
         graph: Graph receiving provenance.
         model: Loaded textX model to inspect with `iter_model_paths`.
         roots: Optional shared directory-to-identity map; created locally when omitted.
+        allow_missing: Keep file locations without hashes when source files are missing.
 
     Returns:
         File entity URIs for the model and its imports.
 
     Raises:
-        OSError: When a source file is missing or cannot be read.
+        OSError: When a source file cannot be read; missing files are ignored if allow_missing.
     """
     if roots is None:
         roots = {}
     return {
-        add_import_prov(graph, path, import_uri, roots=roots)
+        add_import_prov(graph, path, import_uri, roots=roots, allow_missing=allow_missing)
         for path, import_uri, _ in iter_model_paths(model)
     }
 
