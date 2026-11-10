@@ -110,16 +110,23 @@ def add_import_prov(
     Raises:
         FileNotFoundError: When a source file is missing during hashing and allow_missing is False.
         OSError: When a source file cannot be read.
+        ValueError: When a package has no filesystem directory, or its distribution PURL
+            already identifies another import-package directory.
     """
     path = Path(path).resolve()
 
     if import_uri is not None and package_import(import_uri) != import_uri:
         package = import_uri.partition(":")[0]
         info = get_pkg_info(package)
+
         directory = info.directory
         if directory is None:
             raise ValueError(f"Package {package!r} has no filesystem directory")
-        if directory not in roots or not roots[directory].startswith("pkg:"):
+
+        if roots.get(directory) != info.purl:
+            if info.purl in roots.values():
+                raise ValueError(f"{info.purl} already identifies another import-package directory")
+
             load_pkg_prov(
                 graph,
                 info.purl,
