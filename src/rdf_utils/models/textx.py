@@ -115,12 +115,21 @@ def add_import_prov(
 
     if import_uri is not None and package_import(import_uri) != import_uri:
         package = import_uri.partition(":")[0]
-        with resources.as_file(resources.files(package)) as pkg_dir:
-            directory = pkg_dir.resolve()
+        info = get_pkg_info(package)
+        directory = info.directory
+        if directory is None:
+            raise ValueError(f"Package {package!r} has no filesystem directory")
         if directory not in roots or not roots[directory].startswith("pkg:"):
-            pkg_id, version, revision, repository, dirty = get_pkg_info(package)
-            load_pkg_prov(graph, pkg_id, package, version, revision, repository, dirty=dirty)
-            roots[directory] = pkg_id
+            load_pkg_prov(
+                graph,
+                info.purl,
+                package,
+                info.version,
+                info.revision,
+                info.repository,
+                dirty=info.dirty,
+            )
+            roots[directory] = info.purl
 
     selected = None
     best_rank = (False, -1)

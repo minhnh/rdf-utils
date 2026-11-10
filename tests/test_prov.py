@@ -4,10 +4,12 @@ import re
 import sys
 import unittest
 from datetime import UTC, datetime, timedelta
+from importlib import resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+import pytest
 from git import Repo
 from packageurl import ValidationSeverity
 from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
@@ -15,6 +17,7 @@ from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
+    PackageInfo,
     add_agent,
     add_directory_location,
     add_entity,
@@ -108,18 +111,28 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_pkg_info_of_an_installed_package(self):
-        purl, version, revision, repository, dirty = get_pkg_info("rdf_utils")
-        self.assertIsInstance(purl, URIRef)
-        self.assertTrue(str(purl).startswith("pkg:"))
-        self.assertIsNotNone(version)
+        info = get_pkg_info("rdf_utils")
+        self.assertIsInstance(info.purl, URIRef)
+        self.assertTrue(str(info.purl).startswith("pkg:"))
+        self.assertIsNotNone(info.version)
+        with resources.as_file(resources.files("rdf_utils")) as directory:
+            self.assertEqual(info.directory, directory.resolve())
         # Only an editable or a git install, not CI's `pip install .`, has a source to read.
-        if revision is not None:
-            self.assertRegex(revision, REVISION)
-        load_pkg_prov(self.graph, purl, "rdf_utils", version, revision, repository, dirty=dirty)
-        installed = purl
-        self.assertIn((installed, SDO.softwareVersion, Literal(version)), self.graph)
-        if repository is not None:
-            self.assertIn((installed, SDO.codeRepository, URIRef(repository)), self.graph)
+        if info.revision is not None:
+            self.assertRegex(info.revision, REVISION)
+        load_pkg_prov(
+            self.graph,
+            info.purl,
+            "rdf_utils",
+            info.version,
+            info.revision,
+            info.repository,
+            dirty=info.dirty,
+        )
+        installed = info.purl
+        self.assertIn((installed, SDO.softwareVersion, Literal(info.version)), self.graph)
+        if info.repository is not None:
+            self.assertIn((installed, SDO.codeRepository, URIRef(info.repository)), self.graph)
         check_shacl_constraints(self.graph, SHACL)
 
     def test_git_info_of_a_checkout_and_of_a_path_outside_one(self):
@@ -158,10 +171,19 @@ class ProvTest(unittest.TestCase):
                 package.read_text.return_value = json.dumps(
                     {"url": checkout.as_uri(), "dir_info": {"editable": editable}}
                 )
-                with patch("rdf_utils.models.prov.distribution", return_value=package):
+                with (
+                    patch("rdf_utils.models.prov.distribution", return_value=package),
+                    patch(
+                        "rdf_utils.models.prov.packages_distributions",
+                        return_value={package.name: [package.name]},
+                    ),
+                ):
                     info = get_pkg_info("rdf_utils")
-                self.assertIsInstance(info[0], URIRef)
-                self.assertEqual(info[1:], ("0.0.1", *source))
+                self.assertIsInstance(info.purl, URIRef)
+                self.assertEqual(
+                    (info.version, info.revision, info.repository, info.dirty), ("0.0.1", *source)
+                )
+                self.assertEqual(info.distrib_name, package.name)
 
     def test_package_purl_origins(self):
         for origin, expected in [
@@ -195,8 +217,14 @@ class ProvTest(unittest.TestCase):
                 package = Mock(version="1.0+local")
                 package.name = "My_Package"
                 package.read_text.return_value = json.dumps(origin)
-                with patch("rdf_utils.models.prov.distribution", return_value=package):
-                    self.assertEqual(get_pkg_info("My_Package")[0], URIRef(expected))
+                with (
+                    patch("rdf_utils.models.prov.distribution", return_value=package),
+                    patch(
+                        "rdf_utils.models.prov.packages_distributions",
+                        return_value={package.name: [package.name]},
+                    ),
+                ):
+                    self.assertEqual(get_pkg_info("My_Package").purl, URIRef(expected))
 
     def test_get_pkg_url_from_known_source(self):
         for revision in (None, "abc"):
@@ -245,12 +273,20 @@ class ProvTest(unittest.TestCase):
                 package.read_text.return_value = json.dumps(
                     {"url": project.as_uri(), "dir_info": {"editable": True}}
                 )
-                with patch("rdf_utils.models.prov.distribution", return_value=package):
-                    purl, _, revision, _, dirty = get_pkg_info(project.name)
-                self.assertEqual(revision, commit)
-                self.assertFalse(dirty)
-                self.assertEqual(purl, URIRef(f"pkg:git/example.org/repo@{commit}#{project.name}"))
-                identities.append(purl)
+                with (
+                    patch("rdf_utils.models.prov.distribution", return_value=package),
+                    patch(
+                        "rdf_utils.models.prov.packages_distributions",
+                        return_value={package.name: [package.name]},
+                    ),
+                ):
+                    info = get_pkg_info(project.name)
+                self.assertEqual(info.revision, commit)
+                self.assertFalse(info.dirty)
+                self.assertEqual(
+                    info.purl, URIRef(f"pkg:git/example.org/repo@{commit}#{project.name}")
+                )
+                identities.append(info.purl)
             self.assertEqual(len(set(identities)), len(projects))
 
     def test_path_from_file_url(self):
@@ -259,9 +295,7 @@ class ProvTest(unittest.TestCase):
 
     def test_pkg_info_of_a_package_that_is_not_installed(self):
         missing = "rdf-utils-no-such-distribution"
-        self.assertEqual(
-            get_pkg_info(missing), (URIRef(f"pkg:generic/{missing}"), None, None, None, False)
-        )
+        self.assertEqual(get_pkg_info(missing), PackageInfo(purl=URIRef(f"pkg:generic/{missing}")))
 
     def test_transformation(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.start, self.end)
@@ -509,3 +543,30 @@ def test_parse_git_repo_url_of_remotes():
         ("git@host:org/my?repo.git", "https://host/org/my%3Frepo"),
     ]:
         assert parse_git_repo_url(remote).geturl() == iri
+
+
+def test_import_package_info_uses_owning_distribution():
+    package = Mock(version="1.2")
+    package.name = "PyYAML"
+    package.read_text.return_value = None
+    with (
+        patch("rdf_utils.models.prov.packages_distributions", return_value={"yaml": ["PyYAML"]}),
+        patch("rdf_utils.models.prov.distribution", return_value=package) as lookup,
+    ):
+        info = get_pkg_info("yaml")
+    lookup.assert_called_once_with("PyYAML")
+    assert info.distrib_name == package.name
+    assert info.version == package.version
+    assert info.purl == URIRef("pkg:pypi/pyyaml@1.2")
+
+
+def test_import_package_info_handles_unknown_and_ambiguous_owners():
+    with patch("rdf_utils.models.prov.packages_distributions", return_value={}):
+        assert get_pkg_info("unknown_import").distrib_name is None
+    with (
+        patch(
+            "rdf_utils.models.prov.packages_distributions", return_value={"shared": ["one", "two"]}
+        ),
+        pytest.raises(ValueError, match="multiple distributions"),
+    ):
+        get_pkg_info("shared")
