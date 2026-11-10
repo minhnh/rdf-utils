@@ -7,9 +7,10 @@ import json
 import re
 import sys
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
-from importlib import resources
-from importlib.metadata import PackageNotFoundError, distribution
+from importlib import resources, util
+from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path, PurePath
 from urllib.parse import SplitResult, quote, unquote, urljoin, urlsplit
 from urllib.request import url2pathname
@@ -456,39 +457,101 @@ def get_git_info(path: Path) -> tuple[str | None, str | None, str | None, bool]:
     return commit, parse_git_repo_url(remote).geturl() if remote else None, subpath, dirty
 
 
-def get_pkg_info(name: str) -> tuple[URIRef, str | None, str | None, str | None, bool]:
-    """Read off an installed package what describes it, from its metadata and its source.
+@dataclass(frozen=True, kw_only=True)
+class PackageInfo:
+    """Installed distribution identity and source metadata.
 
     Parameters:
-        name: distribution name of the package, e.g. `rdf_utils`
+        purl: Package URL identifying the distribution or a generic fallback.
+        distrib_name: Installed distribution name, or None when unknown.
+        version: Installed version, when available.
+        revision: Source revision, when available.
+        repository: Source repository URL, when available.
+        dirty: Whether an editable checkout has uncommitted changes.
+        directory: Resolved import package directory, or None for unavailable/non-filesystem packages.
+    """
+
+    purl: URIRef
+    distrib_name: str | None = None
+    version: str | None = None
+    revision: str | None = None
+    repository: str | None = None
+    dirty: bool = False
+    directory: Path | None = None
+
+
+def get_pkg_info(name: str) -> PackageInfo:
+    """Read distribution metadata and source identity for a Python import package.
+
+    Parameters:
+        name: Python import name, resolved to its owning distribution through installed metadata.
 
     Returns:
-        Package purl URIRef, version, revision, repository and dirty flag. Pass the package name
-        separately to `load_pkg_prov`. Installation metadata determines the purl type.
+        Package identity and metadata, with a generic identity when no distribution is found.
+
+    Raises:
+        ValueError: When an import name belongs to multiple distributions.
     """
+    directory = None
     try:
-        package = distribution(name)
+        spec = util.find_spec(name)
+    except ModuleNotFoundError:
+        spec = None
+
+    if spec is not None and spec.submodule_search_locations is not None:
+        resource = resources.files(name)
+        if isinstance(resource, Path):
+            with resources.as_file(resource) as package_dir:
+                directory = package_dir.resolve()
+
+    owners = sorted(set(packages_distributions().get(name.partition(".")[0], [])))
+    if len(owners) > 1:
+        raise ValueError(f"Import {name!r} belongs to multiple distributions: {', '.join(owners)}")
+
+    # If no distribution is listed for this import, try its name directly (needed by some editable installs).
+    lookup = owners[0] if owners else name.partition(".")[0]
+    try:
+        package = distribution(lookup)
     except PackageNotFoundError:
-        return URIRef(f"pkg:generic/{quote(name, safe='')}"), None, None, None, False
+        return PackageInfo(purl=URIRef(f"pkg:generic/{quote(name, safe='')}"), directory=directory)
 
     # PEP 610: pip records where a package was installed from, if not from an index.
     origin = json.loads(package.read_text("direct_url.json") or "{}")
-
     if origin.get("dir_info", {}).get("editable"):
         project = path_from_file_url(origin["url"]) / origin.get("subdirectory", "")
         revision, repository, subpath, dirty = get_git_info(project)
         if revision is not None:
             origin["subdirectory"] = subpath
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
-        return purl, package.version, revision, repository, dirty
+        return PackageInfo(
+            purl=purl,
+            distrib_name=package.name,
+            version=package.version,
+            revision=revision,
+            repository=repository,
+            dirty=dirty,
+            directory=directory,
+        )
 
     if "vcs_info" in origin:
         revision = origin["vcs_info"]["commit_id"]
         repository = parse_git_repo_url(origin["url"]).geturl()
         purl = get_pkg_url(package.name, package.version, origin, revision, repository)
-        return purl, package.version, revision, repository, False
+        return PackageInfo(
+            purl=purl,
+            distrib_name=package.name,
+            version=package.version,
+            revision=revision,
+            repository=repository,
+            directory=directory,
+        )
 
-    return get_pkg_url(package.name, package.version, origin), package.version, None, None, False
+    return PackageInfo(
+        purl=get_pkg_url(package.name, package.version, origin),
+        distrib_name=package.name,
+        version=package.version,
+        directory=directory,
+    )
 
 
 def load_pkg_prov(
