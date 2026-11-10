@@ -141,6 +141,30 @@ def add_import_prov(
     return file_id
 
 
+def add_model_prov(
+    graph: Graph, model: Any, *, roots: dict[Path, URIRef] | None = None
+) -> set[URIRef]:
+    """Record source file locations and hashes for a loaded textX model and its imports.
+
+    Parameters:
+        graph: Graph receiving provenance.
+        model: Loaded textX model to inspect with `iter_model_paths`.
+        roots: Optional shared directory-to-identity map; created locally when omitted.
+
+    Returns:
+        File entity URIs for the model and its imports.
+
+    Raises:
+        OSError: When a source file is missing or cannot be read.
+    """
+    if roots is None:
+        roots = {}
+    return {
+        add_import_prov(graph, path, import_uri, roots=roots)
+        for path, import_uri, _ in iter_model_paths(model)
+    }
+
+
 class IHasParent:
     """Require the parent supplied by a textX model constructor."""
 

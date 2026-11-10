@@ -170,3 +170,27 @@ def test_import_provenance_prefers_deepest_package_root(tmp_path, reverse):
     location = graph.value(file_id, PROV.atLocation)
     assert graph.value(location, PROV.atLocation) == nested_id
     assert get_file_path(graph, file_id) == path
+
+
+def test_model_provenance_records_root_and_imports_with_shared_roots(tmp_path):
+    from rdflib import Graph
+    from rdflib.namespace import DCTERMS
+
+    from rdf_utils.models.prov import get_file_path
+    from rdf_utils.models.textx import add_model_prov
+
+    paths = [tmp_path / name for name in ("root.scene", "imported.scene")]
+    for path in paths:
+        path.write_text("example")
+    imported = SimpleNamespace(_tx_filename=str(paths[1]))
+    model = SimpleNamespace(
+        _tx_filename=str(paths[0]),
+        imports=[SimpleNamespace(importURI=paths[1].name, _tx_loaded_models=[imported])],
+    )
+    for roots in (None, {}):
+        graph = Graph()
+        entities = add_model_prov(graph, model, roots=roots)
+        assert {get_file_path(graph, entity) for entity in entities} == set(paths)
+        assert all(graph.value(entity, DCTERMS.identifier) is not None for entity in entities)
+        if roots is not None:
+            assert tmp_path in roots
