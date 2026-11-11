@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from importlib import resources, util
@@ -596,35 +596,40 @@ def load_pkg_prov(
 def load_transformation_prov(
     graph: Graph,
     activity_id: URIRef,
-    sources: Iterable[URIRef],
-    targets: Iterable[URIRef],
+    sources: Collection[URIRef],
+    targets: Collection[URIRef],
     pkg_id: URIRef,
     started: URIRef,
     ended: URIRef | None = None,
+    *,
+    influenced: Collection[URIRef] = (),
 ) -> None:
-    """Add a `prov-ext:Transformation` of source entities into target entities.
+    """Record a transformation, deriving every target from every source.
+
+    The transformation shape requires at least one generated target.
 
     Parameters:
-        graph: RDF graph to add the transformation to
+        graph: RDF graph receiving provenance
         activity_id: URI of the transformation
-        sources: URIs of the entities transformed
-        targets: URIs of the entities generated; typed as `prov:Entity` here
+        sources: Reusable collection of source entity URIs, e.g. a list, tuple or set
+        targets: Collection of generated target entity URIs
         pkg_id: URI of the software package that ran the transformation
         started: URI of the start instant
         ended: URI of the end instant, None while still running
+        influenced: Collection of additional target entity URIs influenced by the activity
     """
-    for entity_id in targets:
-        add_entity(graph, entity_id)
-        graph.add((entity_id, PROV.wasGeneratedBy, activity_id))
     add_activity(
-        graph,
-        activity_id,
-        (URI_PROV_EXT_TYPE_TRANSFORMATION,),
-        sources,
-        pkg_id,
-        started,
-        ended,
+        graph, activity_id, (URI_PROV_EXT_TYPE_TRANSFORMATION,), sources, pkg_id, started, ended
     )
+    for relation, entities in (
+        (PROV.wasGeneratedBy, targets),
+        (PROV.wasInfluencedBy, influenced),
+    ):
+        for target in entities:
+            add_entity(graph, target)
+            graph.add((target, relation, activity_id))
+            for source in sources:
+                graph.add((target, PROV.wasDerivedFrom, source))
 
 
 def load_sampling_prov(

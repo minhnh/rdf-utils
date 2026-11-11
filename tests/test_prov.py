@@ -294,10 +294,28 @@ class ProvTest(unittest.TestCase):
         )
 
     def test_transformation(self):
-        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [MODEL], PKG, self.start, self.end)
+        existing = URIRef(f"{URI_TEST}/shared-graph")
+        sources = [SPEC, QUANTITY]
+        load_transformation_prov(
+            self.graph,
+            TRANSFORM,
+            sources,
+            [MODEL],
+            PKG,
+            self.start,
+            self.end,
+            influenced={existing},
+        )
         self.assertIn((TRANSFORM, RDF.type, URI_PROV_EXT_TYPE_TRANSFORMATION), self.graph)
-        self.assertIn((TRANSFORM, PROV.used, SPEC), self.graph)
+        self.assertIn((TRANSFORM, PROV.wasAssociatedWith, PKG), self.graph)
         self.assertIn((MODEL, PROV.wasGeneratedBy, TRANSFORM), self.graph)
+        self.assertIn((existing, RDF.type, PROV.Entity), self.graph)
+        self.assertIn((existing, PROV.wasInfluencedBy, TRANSFORM), self.graph)
+        self.assertNotIn((existing, PROV.wasGeneratedBy, TRANSFORM), self.graph)
+        for source in sources:
+            self.assertIn((TRANSFORM, PROV.used, source), self.graph)
+            for target in (MODEL, existing):
+                self.assertIn((target, PROV.wasDerivedFrom, source), self.graph)
         self.assertEqual(self.graph.value(TRANSFORM, TIME.hasBeginning), self.start)
         self.assertEqual(self.graph.value(TRANSFORM, TIME.hasEnd), self.end)
         self.assertIsNone(self.graph.value(TRANSFORM, PROV.startedAtTime))
@@ -330,6 +348,11 @@ class ProvTest(unittest.TestCase):
 
     def test_transformation_needs_target(self):
         load_transformation_prov(self.graph, TRANSFORM, [SPEC], [], PKG, self.start, self.end)
+        with self.assertRaises(SHACLViolation):
+            check_shacl_constraints(self.graph, SHACL)
+        load_transformation_prov(
+            self.graph, TRANSFORM, [SPEC], [], PKG, self.start, self.end, influenced=[MODEL]
+        )
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
 
