@@ -5,6 +5,7 @@ import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from importlib import resources
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -27,10 +28,13 @@ from rdf_utils.models.prov import (
     create_bundle,
     get_file_path,
     get_git_info,
-    get_pkg_info,
     get_pkg_url,
+    get_py_pkg_info,
+    get_ros_pkg_info,
     load_execution_prov,
     load_pkg_prov,
+    load_py_pkg_prov,
+    load_ros_pkg_prov,
     load_sampling_prov,
     load_transformation_prov,
     parse_git_repo_url,
@@ -113,7 +117,7 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_pkg_info_of_an_installed_package(self):
-        info = get_pkg_info("rdf_utils")
+        info = get_py_pkg_info("rdf_utils")
         self.assertIsInstance(info.purl, URIRef)
         self.assertTrue(str(info.purl).startswith("pkg:"))
         self.assertIsNotNone(info.version)
@@ -172,7 +176,7 @@ class ProvTest(unittest.TestCase):
                         return_value={package.name: [package.name]},
                     ),
                 ):
-                    info = get_pkg_info("rdf_utils")
+                    info = get_py_pkg_info("rdf_utils")
                 self.assertIsInstance(info.purl, URIRef)
                 self.assertEqual(
                     (info.version, info.revision, info.repository, info.dirty), ("0.0.1", *source)
@@ -218,7 +222,7 @@ class ProvTest(unittest.TestCase):
                         return_value={package.name: [package.name]},
                     ),
                 ):
-                    self.assertEqual(get_pkg_info("My_Package").purl, URIRef(expected))
+                    self.assertEqual(get_py_pkg_info("My_Package").purl, URIRef(expected))
 
     def test_get_pkg_url_from_known_source(self):
         for revision in (None, "abc"):
@@ -274,7 +278,7 @@ class ProvTest(unittest.TestCase):
                         return_value={package.name: [package.name]},
                     ),
                 ):
-                    info = get_pkg_info(project.name)
+                    info = get_py_pkg_info(project.name)
                 self.assertEqual(info.revision, commit)
                 self.assertFalse(info.dirty)
                 self.assertEqual(
@@ -290,7 +294,8 @@ class ProvTest(unittest.TestCase):
     def test_pkg_info_of_a_package_that_is_not_installed(self):
         missing = "rdf-utils-no-such-distribution"
         self.assertEqual(
-            get_pkg_info(missing), PackageInfo(name=missing, purl=URIRef(f"pkg:generic/{missing}"))
+            get_py_pkg_info(missing),
+            PackageInfo(name=missing, purl=URIRef(f"pkg:generic/{missing}")),
         )
 
     def test_transformation(self):
@@ -574,7 +579,7 @@ def test_import_package_info_uses_owning_distribution():
         patch("rdf_utils.models.prov.packages_distributions", return_value={"yaml": ["PyYAML"]}),
         patch("rdf_utils.models.prov.distribution", return_value=package) as lookup,
     ):
-        info = get_pkg_info("yaml")
+        info = get_py_pkg_info("yaml")
     lookup.assert_called_once_with("PyYAML")
     assert info.name == "yaml"
     assert info.distrib_name == package.name
@@ -587,11 +592,62 @@ def test_import_package_info_uses_owning_distribution():
 
 def test_import_package_info_handles_unknown_and_ambiguous_owners():
     with patch("rdf_utils.models.prov.packages_distributions", return_value={}):
-        assert get_pkg_info("unknown_import").distrib_name is None
+        assert get_py_pkg_info("unknown_import").distrib_name is None
     with (
         patch(
             "rdf_utils.models.prov.packages_distributions", return_value={"shared": ["one", "two"]}
         ),
         pytest.raises(ValueError, match="multiple distributions"),
     ):
-        get_pkg_info("shared")
+        get_py_pkg_info("shared")
+
+
+def test_ros_package_metadata_and_graph_loading(tmp_path):
+    from types import SimpleNamespace
+
+    share = tmp_path / "share"
+    share.mkdir()
+    (share / "package.xml").write_text(
+        "<package><name>example</name><version>1.2.3</version></package>"
+    )
+    packages = SimpleNamespace(get_package_share_directory=Mock(return_value=str(share)))
+    with patch.dict(sys.modules, {"ament_index_python.packages": packages}):
+        info = get_ros_pkg_info("example")
+        graph = Graph()
+        loaded = load_ros_pkg_prov(graph, "example")
+    assert loaded == info
+    assert info.directory == share
+    assert info.purl == URIRef("pkg:ros/example@1.2.3")
+    assert graph.value(info.purl, SDO.softwareVersion) == Literal(info.version)
+    from rdf_utils.models.vocab import URI_ROS_TYPE_PACKAGE
+
+    assert (info.purl, RDF.type, URI_ROS_TYPE_PACKAGE) in graph
+
+
+@pytest.mark.parametrize("missing_ament", [False, True])
+def test_ros_package_metadata_without_ament_or_package(missing_ament):
+    from types import SimpleNamespace
+
+    packages = (
+        None
+        if missing_ament
+        else SimpleNamespace(get_package_share_directory=Mock(side_effect=KeyError("missing")))
+    )
+    with patch.dict(sys.modules, {"ament_index_python.packages": packages}):
+        info = get_ros_pkg_info("missing")
+    assert info == PackageInfo(name="missing", purl=URIRef("pkg:ros/missing"))
+
+
+def test_python_package_loading_retains_generic_fallback_and_graph_options():
+    name = "unknown_software_for_provenance"
+    location, extra_type = URIRef("urn:location"), URIRef("urn:extra-type")
+    graph = Graph()
+    with (
+        patch("rdf_utils.models.prov.packages_distributions", return_value={}),
+        patch("rdf_utils.models.prov.distribution", side_effect=PackageNotFoundError),
+    ):
+        info = load_py_pkg_prov(graph, name, location=location, additional_types=[extra_type])
+    assert info.purl == URIRef(f"pkg:generic/{name}")
+    assert (info.purl, RDF.type, extra_type) in graph
+    assert graph.value(info.purl, PROV.atLocation) == location
+    assert graph.value(info.purl, SDO.name) == Literal(name)

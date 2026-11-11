@@ -244,12 +244,12 @@ def test_root_model_preserves_supplied_ancestor_root(tmp_path):
 def test_import_provenance_rejects_distribution_purl_shared_by_different_directories(tmp_path):
     from rdflib import Graph
 
-    from rdf_utils.models.prov import get_pkg_info
+    from rdf_utils.models.prov import get_py_pkg_info
     from rdf_utils.models.textx import add_import_prov, package_import
 
     import_uri = "rdf_utils:models/textx.py"
     path = Path(package_import(import_uri))
-    info = get_pkg_info("rdf_utils")
+    info = get_py_pkg_info("rdf_utils")
     graph = Graph()
     roots = {tmp_path: info.purl}
     with pytest.raises(ValueError, match="another import-package directory"):

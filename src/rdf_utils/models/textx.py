@@ -15,7 +15,7 @@ from rdf_utils.models.prov import (
     add_directory_location,
     add_file_entity,
     add_file_hash,
-    get_pkg_info,
+    get_py_pkg_info,
     load_pkg_prov,
 )
 
@@ -117,7 +117,7 @@ def add_import_prov(
 
     if import_uri is not None and package_import(import_uri) != import_uri:
         package = import_uri.partition(":")[0]
-        info = get_pkg_info(package)
+        info = get_py_pkg_info(package)
 
         directory = info.directory
         if directory is None:
