@@ -459,17 +459,17 @@ def get_git_info(path: Path) -> tuple[str | None, str | None, str | None, bool]:
 
 @dataclass(frozen=True, kw_only=True)
 class PackageInfo:
-    """Installed distribution identity and source metadata.
+    """Software package identity and source metadata.
 
     Parameters:
         name: Python import or ROS package name used to resolve resources.
-        purl: Package URL identifying the distribution or a generic fallback.
+        purl: Package URL identifying the software package.
         distrib_name: Installed distribution name, or None when unknown.
         version: Installed version, when available.
         revision: Source revision, when available.
         repository: Source repository URL, when available.
         dirty: Whether an editable checkout has uncommitted changes.
-        directory: Resolved import package directory, or None for unavailable/non-filesystem packages.
+        directory: Python resource or ROS share directory, or None when unavailable.
     """
 
     name: str
@@ -482,8 +482,11 @@ class PackageInfo:
     directory: Path | None = None
 
 
-def get_pkg_info(name: str) -> PackageInfo:
+def get_py_pkg_info(name: str) -> PackageInfo:
     """Read distribution metadata and source identity for a Python import package.
+
+    Names without Python distribution metadata receive a generic package identity; metadata
+    from other package managers is not queried.
 
     Parameters:
         name: Python import name, e.g. `scene_dsl`, not the distribution name `scene-dsl`.
@@ -562,6 +565,42 @@ def get_pkg_info(name: str) -> PackageInfo:
     )
 
 
+def get_ros_pkg_info(name: str) -> PackageInfo:
+    """Read a ROS package's version and share directory through the optional ament index.
+
+    Parameters:
+        name: ROS package name, as registered in the ament index.
+
+    Returns:
+        ROS PURL, version and share directory. If ament or the package is unavailable,
+        return an unversioned ROS identity with no directory.
+
+    Raises:
+        OSError: When an available package's manifest cannot be read.
+        ElementTree.ParseError: When its package.xml is malformed.
+    """
+    from xml.etree import ElementTree
+
+    try:
+        from ament_index_python.packages import get_package_share_directory
+
+        directory = Path(get_package_share_directory(name)).resolve()
+    # ament's PackageNotFoundError is a KeyError; ament itself is optional.
+    except (ImportError, KeyError):
+        directory = None
+    version = None
+    if directory is not None:
+        version = ElementTree.parse(directory / "package.xml").findtext("version")
+        if version is not None:
+            version = version.strip() or None
+    return PackageInfo(
+        name=name,
+        purl=URIRef(PackageURL(type="ros", name=name, version=version).to_string()),
+        version=version,
+        directory=directory,
+    )
+
+
 def load_pkg_prov(
     graph: Graph,
     info: PackageInfo,
@@ -571,12 +610,13 @@ def load_pkg_prov(
 ) -> None:
     """Record a package's software identity and source metadata.
 
+    Construct `PackageInfo` directly to describe software from other package managers.
     The package is also a `prov:Location` for relative files. Without an explicit location,
     `resolve_location` finds resources using info.name, the Python import or ROS package name.
 
     Parameters:
         graph: RDF graph receiving provenance.
-        info: Package identity and metadata, obtained from `get_pkg_info` or constructed directly.
+        info: Package identity and metadata, obtained from a package lookup or constructed directly.
         location: Optional location of the package, stored as `prov:atLocation`.
         additional_types: Additional package types, e.g. `ros:Package`.
     """
@@ -591,6 +631,56 @@ def load_pkg_prov(
         graph.add((info.purl, SDO.codeRepository, URIRef(info.repository)))
     if location is not None:
         graph.add((info.purl, PROV.atLocation, location))
+
+
+def load_py_pkg_prov(
+    graph: Graph,
+    name: str,
+    *,
+    location: URIRef | None = None,
+    additional_types: Iterable[URIRef] = (),
+) -> PackageInfo:
+    """Look up a Python import package and record its provenance.
+
+    Names without Python distribution metadata are recorded with a generic identity.
+
+    Parameters:
+        graph: RDF graph receiving provenance.
+        name: Python import name, e.g. `scene_dsl`, not `scene-dsl`.
+        location: Optional package location, stored as `prov:atLocation`.
+        additional_types: Additional package types.
+
+    Returns:
+        The package metadata recorded in the graph.
+    """
+    info = get_py_pkg_info(name)
+    load_pkg_prov(graph, info, location=location, additional_types=additional_types)
+    return info
+
+
+def load_ros_pkg_prov(
+    graph: Graph,
+    name: str,
+    *,
+    location: URIRef | None = None,
+    additional_types: Iterable[URIRef] = (),
+) -> PackageInfo:
+    """Look up a ROS package and record its provenance, including its `ros:Package` type.
+
+    Parameters:
+        graph: RDF graph receiving provenance.
+        name: ROS package name, as registered in the ament index.
+        location: Optional package location, stored as `prov:atLocation`.
+        additional_types: Additional types besides `ros:Package`.
+
+    Returns:
+        The package metadata recorded in the graph.
+    """
+    info = get_ros_pkg_info(name)
+    load_pkg_prov(
+        graph, info, location=location, additional_types=(URI_ROS_TYPE_PACKAGE, *additional_types)
+    )
+    return info
 
 
 def load_transformation_prov(
