@@ -19,7 +19,7 @@ OWNER = TEST.owner
 
 
 def _color_graph(scheme: ColorScheme, value: str, colors: int = 1) -> Graph:
-    """OWNER drawn in COLORS colours, each in SCHEME with VALUE."""
+    """Build a graph that draws OWNER in `colors` colors, each in `scheme` with `value`."""
     graph = Graph()
     for index in range(colors):
         add_color(graph, OWNER, TEST[f"color-{index}"], scheme, value)
@@ -29,10 +29,10 @@ def _color_graph(scheme: ColorScheme, value: str, colors: int = 1) -> Graph:
 class ColorTest(unittest.TestCase):
     def assertTupleAlmostEqual(self, actual, expected):
         self.assertEqual(len(actual), len(expected))
-        for a, e in zip(actual, expected, strict=True):
+        for a, e in zip(actual, expected):
             self.assertAlmostEqual(a, e)
 
-    def test_add_color_types_the_colour_and_its_scheme(self):
+    def test_add_color_types_the_color_and_its_scheme(self):
         for scheme, value in (
             (ColorScheme.RGB, "#E63300"),
             (ColorScheme.RGBA, "#33B34D80"),
