@@ -102,8 +102,7 @@ class ColorModel(ModelBase):
             raise ConstraintViolation(
                 "color", f"color '{self.id}' needs one scheme of RGB, RGBA or HSV, found {schemes}"
             )
-        [scheme] = schemes
-        self.scheme = scheme
+        self.scheme = scheme = schemes[0]
 
         literals = list(graph.objects(self.id, URI_COLOR_PRED_VALUE))
         if len(literals) != 1 or not isinstance(literals[0], Literal):
@@ -185,5 +184,4 @@ def get_color(graph: Graph, owner: URIRef) -> ColorModel | None:
         return None
     if len(colors) > 1:
         raise ConstraintViolation("color", f"'{owner}' has {len(colors)} colors, expected one")
-    [color] = colors
-    return ColorModel(color, graph)
+    return ColorModel(colors[0], graph)
