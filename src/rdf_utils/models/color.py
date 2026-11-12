@@ -8,7 +8,6 @@ first use. A consumer that takes RGBA, as MJCF, URDF and SDF do, asks for `Color
 """
 
 import colorsys
-import math
 from enum import Enum
 
 from rdflib import RDF, Graph, Literal, URIRef
@@ -110,9 +109,9 @@ class ColorModel(ModelBase):
             raise ConstraintViolation(
                 "color", f"color '{self.id}' has an invalid {scheme.name} value '{value}': {error}"
             ) from error
-        if len(channels) != count or not all(math.isfinite(c) for c in channels):
+        if len(channels) != count:
             raise ConstraintViolation(
-                "color", f"color '{self.id}' needs {count} finite {scheme.name} channels: '{value}'"
+                "color", f"color '{self.id}' needs {count} {scheme.name} channels: '{value}'"
             )
 
         self._rgb = self._rgba = self._hsv = None
