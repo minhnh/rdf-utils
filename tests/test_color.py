@@ -89,6 +89,7 @@ class ColorTest(unittest.TestCase):
             (ColorScheme.RGB, "#12345", 1, "invalid RGB value '#12345': expected 6 hex digits"),
             (ColorScheme.RGBA, "0.9 0.2 0.2", 1, "needs 4 finite RGBA channels"),
             (ColorScheme.RGB, "1.5 0 0", 1, "needs RGB channels in [0, 1]"),
+            (ColorScheme.HSV, "#FF0000", 1, "invalid HSV value '#FF0000': hex writes RGB(A)"),
             (ColorScheme.HSV, "360 0.5 0.5", 1, "needs HSV hue in [0, 360)"),
             (ColorScheme.HSV, "10 1.5 0.5", 1, "saturation and value in [0, 1]"),
         ):

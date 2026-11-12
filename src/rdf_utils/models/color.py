@@ -57,7 +57,9 @@ def add_color(
 def _channels(scheme: ColorScheme, value: str) -> list[float]:
     """The channels a `col:value` literal writes: hex digit pairs, or space-separated floats."""
     count = CHANNEL_COUNTS[scheme]
-    if value.startswith("#") and scheme is not ColorScheme.HSV:
+    if value.startswith("#"):
+        if scheme is ColorScheme.HSV:
+            raise ValueError("hex writes RGB(A) channels, not HSV")
         if len(value) != 1 + 2 * count:
             raise ValueError(f"expected {2 * count} hex digits")
         return [int(value[i : i + 2], 16) / 255 for i in range(1, len(value), 2)]
