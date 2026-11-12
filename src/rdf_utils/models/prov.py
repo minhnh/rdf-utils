@@ -760,7 +760,8 @@ def load_transformation_prov(
     """Record a transformation, deriving every target from every source.
 
     The transformation shape requires at least one generated target. Datetime boundaries
-    create wall-clock instant nodes; URI boundaries refer to existing instants.
+    create wall-clock instant nodes, reusing the activity's boundary IDs on repeated calls;
+    URI boundaries refer to existing instants.
 
     Parameters:
         graph: RDF graph receiving provenance
@@ -781,9 +782,11 @@ def load_transformation_prov(
     if activity_id is None:
         activity_id = URIRef(uuid4().urn)
     if isinstance(started, datetime):
-        started = add_wall_instant(graph, started)
+        start_id = graph.value(activity_id, TIME.hasBeginning)
+        started = add_wall_instant(graph, started, instant_id=start_id)
     if isinstance(ended, datetime):
-        ended = add_wall_instant(graph, ended)
+        end_id = graph.value(activity_id, TIME.hasEnd)
+        ended = add_wall_instant(graph, ended, instant_id=end_id)
 
     add_activity(
         graph, activity_id, (URI_PROV_EXT_TYPE_TRANSFORMATION,), sources, pkg_id, started, ended

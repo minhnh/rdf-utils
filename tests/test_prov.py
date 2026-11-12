@@ -306,7 +306,7 @@ class ProvTest(unittest.TestCase):
         for requested, started, ended in (
             (TRANSFORM, self.start, self.end),
             (None, self.t0, self.t1),
-            (None, self.start, None),
+            (None, self.t0, None),
         ):
             with self.subTest(started=started, ended=ended):
                 graph = Graph()
@@ -346,6 +346,36 @@ class ProvTest(unittest.TestCase):
                         self.assertEqual(instant, boundary)
                 self.assertIsNone(graph.value(activity, PROV.startedAtTime))
                 self.assertIsNone(graph.value(activity, PROV.endedAtTime))
+                check_shacl_constraints(graph, SHACL)
+                if ended is None:
+                    start_id = graph.value(activity, TIME.hasBeginning)
+                    ended = self.t1
+                    load_transformation_prov(
+                        graph,
+                        sources,
+                        [MODEL],
+                        PKG,
+                        activity_id=activity,
+                        started=started,
+                        ended=ended,
+                        influenced={existing},
+                    )
+                    self.assertEqual(list(graph.objects(activity, TIME.hasBeginning)), [start_id])
+                before = set(graph)
+                self.assertEqual(
+                    load_transformation_prov(
+                        graph,
+                        sources,
+                        [MODEL],
+                        PKG,
+                        activity_id=activity,
+                        started=started,
+                        ended=ended,
+                        influenced={existing},
+                    ),
+                    activity,
+                )
+                self.assertEqual(set(graph), before)
                 check_shacl_constraints(graph, SHACL)
 
     def test_bundle_is_a_named_graph_in_the_dataset_attributed_to_its_tool(self):
