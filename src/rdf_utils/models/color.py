@@ -54,30 +54,16 @@ def add_color(
     graph.add((color_id, URI_COLOR_PRED_VALUE, Literal(value)))
 
 
-def _channels(scheme: ColorScheme, value: str) -> list[float]:
-    """The channels a `col:value` literal writes: hex digit pairs, or space-separated floats.
+class ColorModel(ModelBase):
+    """One colour, as the graph states it.
 
-    Each scheme takes:
+    Its `col:value` is hex digit pairs or space-separated floats; each scheme takes:
 
     - RGB: `#RRGGBB`, or `r g b` with each channel in [0, 1]
     - RGBA: `#RRGGBBAA`, or `r g b a` with each channel in [0, 1]
     - HSV: `h s v`, hue in degrees [0, 360), saturation and value in [0, 1]; no hex form
 
-    Hex pairs 00-FF read as n / 255, so they land in [0, 1] too. Only the hex digit count is
-    checked here; `ColorModel` checks the channel count and the ranges.
-    """
-    count = CHANNEL_COUNTS[scheme]
-    if value.startswith("#"):
-        if scheme is ColorScheme.HSV:
-            raise ValueError("hex writes RGB(A) channels, not HSV")
-        if len(value) != 1 + 2 * count:
-            raise ValueError(f"expected {2 * count} hex digits")
-        return [int(value[i : i + 2], 16) / 255 for i in range(1, len(value), 2)]
-    return [float(channel) for channel in value.split()]
-
-
-class ColorModel(ModelBase):
-    """One colour, as the graph states it.
+    Hex pairs 00-FF read as n / 255, so they land in [0, 1] too.
 
     Attributes:
         scheme: the scheme the colour is written in
@@ -110,13 +96,20 @@ class ColorModel(ModelBase):
                 "color", f"color '{self.id}' needs a literal value, found {literal}"
             )
         self.value = value = str(literal)
+        count = CHANNEL_COUNTS[scheme]
         try:
-            channels = _channels(scheme, value)
+            if not value.startswith("#"):
+                channels = [float(channel) for channel in value.split()]
+            elif scheme is ColorScheme.HSV:
+                raise ValueError("hex writes RGB(A) channels, not HSV")
+            elif len(value) != 1 + 2 * count:
+                raise ValueError(f"expected {2 * count} hex digits")
+            else:
+                channels = [int(value[i : i + 2], 16) / 255 for i in range(1, len(value), 2)]
         except ValueError as error:
             raise ConstraintViolation(
                 "color", f"color '{self.id}' has an invalid {scheme.name} value '{value}': {error}"
             ) from error
-        count = CHANNEL_COUNTS[scheme]
         if len(channels) != count or not all(math.isfinite(c) for c in channels):
             raise ConstraintViolation(
                 "color", f"color '{self.id}' needs {count} finite {scheme.name} channels: '{value}'"
