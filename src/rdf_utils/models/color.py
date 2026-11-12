@@ -104,12 +104,12 @@ class ColorModel(ModelBase):
             )
         self.scheme = scheme = schemes[0]
 
-        literals = list(graph.objects(self.id, URI_COLOR_PRED_VALUE))
-        if len(literals) != 1 or not isinstance(literals[0], Literal):
+        literal = graph.value(self.id, URI_COLOR_PRED_VALUE, any=False)
+        if not isinstance(literal, Literal):
             raise ConstraintViolation(
-                "color", f"color '{self.id}' needs one literal value, found {literals}"
+                "color", f"color '{self.id}' needs a literal value, found {literal}"
             )
-        self.value = value = str(literals[0])
+        self.value = value = str(literal)
         try:
             channels = _channels(scheme, value)
         except ValueError as error:
@@ -179,9 +179,7 @@ def get_color(graph: Graph, owner: URIRef) -> ColorModel | None:
         graph: RDF graph to read the colour from
         owner: URI of the thing drawn in the colour
     """
-    colors = list(graph.objects(owner, URI_COLOR_PRED_HAS_COLOR))
-    if not colors:
+    color = graph.value(owner, URI_COLOR_PRED_HAS_COLOR, any=False)
+    if color is None:
         return None
-    if len(colors) > 1:
-        raise ConstraintViolation("color", f"'{owner}' has {len(colors)} colors, expected one")
-    return ColorModel(colors[0], graph)
+    return ColorModel(color, graph)

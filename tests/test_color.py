@@ -3,6 +3,7 @@ import colorsys
 import unittest
 
 from rdflib import RDF, Graph, Literal, Namespace
+from rdflib.exceptions import UniquenessError
 
 from rdf_utils.constraints import ConstraintViolation
 from rdf_utils.models.color import ColorScheme, add_color, get_color
@@ -84,40 +85,47 @@ class ColorTest(unittest.TestCase):
                 self.assertTupleAlmostEqual(color.hsv, hsv)
 
     def test_malformed_color_is_reported(self):
-        for scheme, value, colors, message in (
-            (ColorScheme.RGB, "#E63300", 2, "has 2 colors, expected one"),
-            (ColorScheme.RGB, "#12345", 1, "invalid RGB value '#12345': expected 6 hex digits"),
-            (ColorScheme.RGBA, "0.9 0.2 0.2", 1, "needs 4 finite RGBA channels"),
-            (ColorScheme.RGB, "1.5 0 0", 1, "needs RGB channels in [0, 1]"),
-            (ColorScheme.HSV, "#FF0000", 1, "invalid HSV value '#FF0000': hex writes RGB(A)"),
-            (ColorScheme.HSV, "360 0.5 0.5", 1, "needs HSV hue in [0, 360)"),
-            (ColorScheme.HSV, "10 1.5 0.5", 1, "saturation and value in [0, 1]"),
+        for scheme, value, message in (
+            (ColorScheme.RGB, "#12345", "invalid RGB value '#12345': expected 6 hex digits"),
+            (ColorScheme.RGBA, "0.9 0.2 0.2", "needs 4 finite RGBA channels"),
+            (ColorScheme.RGB, "1.5 0 0", "needs RGB channels in [0, 1]"),
+            (ColorScheme.HSV, "#FF0000", "invalid HSV value '#FF0000': hex writes RGB(A)"),
+            (ColorScheme.HSV, "360 0.5 0.5", "needs HSV hue in [0, 360)"),
+            (ColorScheme.HSV, "10 1.5 0.5", "saturation and value in [0, 1]"),
         ):
-            with self.subTest(scheme=scheme, value=value, colors=colors):
-                graph = _color_graph(scheme, value, colors)
+            with self.subTest(scheme=scheme, value=value):
+                graph = _color_graph(scheme, value)
                 with self.assertRaises(ConstraintViolation) as raised:
                     get_color(graph, OWNER)
                 self.assertIn(message, str(raised.exception))
 
-    def test_color_needs_one_scheme_and_one_value(self):
+    def test_color_needs_one_scheme_and_a_literal_value(self):
         no_scheme = _color_graph(ColorScheme.RGB, "#E63300")
         no_scheme.remove((TEST["color-0"], RDF.type, ColorScheme.RGB.value))
         two_schemes = _color_graph(ColorScheme.RGB, "#E63300")
         two_schemes.add((TEST["color-0"], RDF.type, ColorScheme.HSV.value))
         no_value = _color_graph(ColorScheme.RGB, "#E63300")
         no_value.remove((TEST["color-0"], URI_COLOR_PRED_VALUE, None))
-        two_values = _color_graph(ColorScheme.RGB, "#E63300")
-        two_values.add((TEST["color-0"], URI_COLOR_PRED_VALUE, Literal("#000000")))
+        iri_value = _color_graph(ColorScheme.RGB, "#E63300")
+        iri_value.set((TEST["color-0"], URI_COLOR_PRED_VALUE, TEST.red))
         for name, graph, message in (
             ("no scheme", no_scheme, "needs one scheme of RGB, RGBA or HSV"),
             ("two schemes", two_schemes, "needs one scheme of RGB, RGBA or HSV"),
-            ("no value", no_value, "needs one literal value"),
-            ("two values", two_values, "needs one literal value"),
+            ("no value", no_value, "needs a literal value, found None"),
+            ("IRI value", iri_value, "needs a literal value"),
         ):
             with self.subTest(name):
                 with self.assertRaises(ConstraintViolation) as raised:
                     get_color(graph, OWNER)
                 self.assertIn(message, str(raised.exception))
+
+    def test_duplicate_color_or_value_is_not_unique(self):
+        two_colors = _color_graph(ColorScheme.RGB, "#E63300", colors=2)
+        two_values = _color_graph(ColorScheme.RGB, "#E63300")
+        two_values.add((TEST["color-0"], URI_COLOR_PRED_VALUE, Literal("#000000")))
+        for name, graph in (("two colors", two_colors), ("two values", two_values)):
+            with self.subTest(name), self.assertRaises(UniquenessError):
+                get_color(graph, OWNER)
 
 
 if __name__ == "__main__":
