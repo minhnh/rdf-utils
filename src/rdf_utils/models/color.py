@@ -55,7 +55,17 @@ def add_color(
 
 
 def _channels(scheme: ColorScheme, value: str) -> list[float]:
-    """The channels a `col:value` literal writes: hex digit pairs, or space-separated floats."""
+    """The channels a `col:value` literal writes: hex digit pairs, or space-separated floats.
+
+    Each scheme takes:
+
+    - RGB: `#RRGGBB`, or `r g b` with each channel in [0, 1]
+    - RGBA: `#RRGGBBAA`, or `r g b a` with each channel in [0, 1]
+    - HSV: `h s v`, hue in degrees [0, 360), saturation and value in [0, 1]; no hex form
+
+    Hex pairs 00-FF read as n / 255, so they land in [0, 1] too. Only the hex digit count is
+    checked here; `ColorModel` checks the channel count and the ranges.
+    """
     count = CHANNEL_COUNTS[scheme]
     if value.startswith("#"):
         if scheme is ColorScheme.HSV:
