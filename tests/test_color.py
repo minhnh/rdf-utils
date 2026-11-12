@@ -11,7 +11,7 @@ from rdf_utils.models.vocab import (
     URI_COLOR_PRED_VALUE,
     URI_COLOR_TYPE_COLOR,
 )
-from rdf_utils.namespace import NS_MM_COLOR, URL_SECORO_M
+from rdf_utils.namespace import URL_SECORO_M
 
 TEST = Namespace(f"{URL_SECORO_M}/tests/color/")
 OWNER = TEST.owner
@@ -45,7 +45,7 @@ class ColorTest(unittest.TestCase):
                     {
                         (OWNER, URI_COLOR_PRED_HAS_COLOR, TEST.color),
                         (TEST.color, RDF.type, URI_COLOR_TYPE_COLOR),
-                        (TEST.color, RDF.type, NS_MM_COLOR[scheme.value]),
+                        (TEST.color, RDF.type, scheme.value),
                         (TEST.color, URI_COLOR_PRED_VALUE, Literal(value)),
                     },
                 )
@@ -100,9 +100,9 @@ class ColorTest(unittest.TestCase):
 
     def test_color_needs_one_scheme_and_one_value(self):
         no_scheme = _color_graph(ColorScheme.RGB, "#E63300")
-        no_scheme.remove((TEST["color-0"], RDF.type, NS_MM_COLOR[ColorScheme.RGB.value]))
+        no_scheme.remove((TEST["color-0"], RDF.type, ColorScheme.RGB.value))
         two_schemes = _color_graph(ColorScheme.RGB, "#E63300")
-        two_schemes.add((TEST["color-0"], RDF.type, NS_MM_COLOR[ColorScheme.HSV.value]))
+        two_schemes.add((TEST["color-0"], RDF.type, ColorScheme.HSV.value))
         no_value = _color_graph(ColorScheme.RGB, "#E63300")
         no_value.remove((TEST["color-0"], URI_COLOR_PRED_VALUE, None))
         two_values = _color_graph(ColorScheme.RGB, "#E63300")

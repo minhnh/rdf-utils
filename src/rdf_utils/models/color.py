@@ -9,7 +9,7 @@ first use. A consumer that takes RGBA, as MJCF, URDF and SDF do, asks for `Color
 
 import colorsys
 import math
-from enum import StrEnum
+from enum import Enum
 
 from rdflib import RDF, Graph, Literal, URIRef
 
@@ -19,20 +19,21 @@ from rdf_utils.models.vocab import (
     URI_COLOR_PRED_HAS_COLOR,
     URI_COLOR_PRED_VALUE,
     URI_COLOR_TYPE_COLOR,
+    URI_COLOR_TYPE_HSV_SCHEME,
+    URI_COLOR_TYPE_RGB_SCHEME,
+    URI_COLOR_TYPE_RGBA_SCHEME,
 )
-from rdf_utils.namespace import NS_MM_COLOR
 
 
-class ColorScheme(StrEnum):
+class ColorScheme(Enum):
     """The metamodel class each colour is typed with, next to `col:Color`."""
 
-    RGB = "RGBScheme"
-    RGBA = "RGBAScheme"
-    HSV = "HSVScheme"
+    RGB = URI_COLOR_TYPE_RGB_SCHEME
+    RGBA = URI_COLOR_TYPE_RGBA_SCHEME
+    HSV = URI_COLOR_TYPE_HSV_SCHEME
 
 
 CHANNEL_COUNTS = {ColorScheme.RGB: 3, ColorScheme.RGBA: 4, ColorScheme.HSV: 3}
-SCHEME_TYPES = {NS_MM_COLOR[scheme.value]: scheme for scheme in ColorScheme}
 
 
 def add_color(
@@ -49,7 +50,7 @@ def add_color(
     """
     graph.add((owner, URI_COLOR_PRED_HAS_COLOR, color_id))
     graph.add((color_id, RDF.type, URI_COLOR_TYPE_COLOR))
-    graph.add((color_id, RDF.type, NS_MM_COLOR[scheme.value]))
+    graph.add((color_id, RDF.type, scheme.value))
     graph.add((color_id, URI_COLOR_PRED_VALUE, Literal(value)))
 
 
@@ -84,7 +85,7 @@ class ColorModel(ModelBase):
 
     def __init__(self, color_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=color_id, graph=graph)
-        schemes = [SCHEME_TYPES[t] for t in self.types if t in SCHEME_TYPES]
+        schemes = [scheme for scheme in ColorScheme if scheme.value in self.types]
         if len(schemes) != 1:
             raise ConstraintViolation(
                 "color", f"color '{self.id}' needs one scheme of RGB, RGBA or HSV, found {schemes}"
