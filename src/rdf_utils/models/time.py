@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MPL-2.0
-"""Attach OWL-Time coordinates to caller-named instants, without reading a clock."""
+"""Record OWL-Time coordinates without reading a clock."""
 
 from datetime import datetime
 from math import isfinite
+from uuid import uuid4
 
 from rdflib import RDF, XSD, BNode, Graph, Literal, URIRef
 from rdflib.namespace import TIME
@@ -10,27 +11,36 @@ from rdflib.namespace import TIME
 
 def add_trs_relative_instant(
     graph: Graph,
-    instant_id: URIRef | BNode,
-    position_id: URIRef | BNode,
     seconds: float,
     trs_id: URIRef,
-) -> None:
+    *,
+    instant_id: URIRef | None = None,
+) -> URIRef:
     """Add a finite time reading in seconds relative to an explicit temporal reference system (TRS).
 
-    Callers choose distinct time instant/position IDs for distinct occurrences, even when
-    readings repeat or a clock resets. Each simulation execution needs its own TRS.
+    Omitted IDs create distinct instants even when readings repeat. When supplying IDs,
+    use distinct ones for distinct occurrences. Each simulation execution needs its own TRS.
     Link an observation to the instant with ``time:hasTime``, or an activity boundary
     with ``time:hasBeginning`` or ``time:hasEnd``. Linking is separate from creation.
 
     Parameters:
         graph: RDF graph to add the instant to
-        instant_id: URI or blank node of the instant
-        position_id: URI or blank node of the time position
         seconds: finite clock reading in seconds, relative to the specified TRS
         trs_id: URI of the temporal reference system for the reading
+        instant_id: Instant URI; a fresh UUID URI is generated when omitted.
+
+    Returns:
+        Instant URI. Its time-position node is created internally and reused on repeated calls.
     """
     if not isfinite(seconds):
         raise ValueError("A numeric time position must be finite")
+
+    if instant_id is None:
+        instant_id = URIRef(uuid4().urn)
+
+    position_id = graph.value(instant_id, TIME.inTimePosition)
+    if position_id is None:
+        position_id = BNode()
 
     graph.add((instant_id, RDF.type, TIME.Instant))
     graph.add((instant_id, TIME.inTimePosition, position_id))
@@ -39,8 +49,10 @@ def add_trs_relative_instant(
     graph.add((position_id, TIME.hasTRS, trs_id))
     graph.add((trs_id, RDF.type, TIME.TRS))
 
+    return instant_id
 
-def add_wall_instant(graph: Graph, instant_id: URIRef | BNode, stamp: datetime) -> None:
+
+def add_wall_instant(graph: Graph, stamp: datetime, *, instant_id: URIRef | None = None) -> URIRef:
     """Add an OWL-Time instant with a timezone-aware wall timestamp.
 
     Link an observation to the instant with ``time:hasTime``, or an activity boundary
@@ -48,11 +60,17 @@ def add_wall_instant(graph: Graph, instant_id: URIRef | BNode, stamp: datetime) 
 
     Parameters:
         graph: RDF graph to add the instant to
-        instant_id: URI or blank node of the instant
-        stamp: timezone-aware wall-clock datetime
+        stamp: Timezone-aware wall-clock datetime.
+        instant_id: Instant URI; a fresh UUID URI is generated when omitted.
+
+    Returns:
+        URI of the instant.
     """
     if stamp.utcoffset() is None:
         raise ValueError("A wall timestamp must be timezone-aware")
+    if instant_id is None:
+        instant_id = URIRef(uuid4().urn)
+
     graph.add((instant_id, RDF.type, TIME.Instant))
     graph.add(
         (
@@ -61,3 +79,5 @@ def add_wall_instant(graph: Graph, instant_id: URIRef | BNode, stamp: datetime) 
             Literal(stamp.isoformat(), datatype=XSD.dateTimeStamp),
         )
     )
+
+    return instant_id

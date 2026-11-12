@@ -3,7 +3,7 @@ import json
 import unittest
 from datetime import UTC, datetime, timedelta, timezone
 
-from rdflib import RDF, XSD, BNode, Graph, Literal, Namespace
+from rdflib import RDF, XSD, BNode, Graph, Literal, Namespace, URIRef
 from rdflib.compare import isomorphic
 from rdflib.namespace import PROV, TIME
 
@@ -28,14 +28,23 @@ class TimeTest(unittest.TestCase):
 
     def test_numeric_instants_keep_occurrence_and_clock_identity(self):
         seconds = 1234567890.1234567
-        for instant, position, clock in (
-            (TEST.first, TEST.firstPosition, TEST.clock),
-            (TEST.repeated, BNode(), TEST.clock),
-            (TEST.otherRun, TEST.otherPosition, TEST.otherClock),
+        for requested, clock in (
+            (TEST.first, TEST.clock),
+            (None, TEST.clock),
+            (None, TEST.otherClock),
         ):
-            add_trs_relative_instant(self.graph, instant, position, seconds, clock)
+            instant = add_trs_relative_instant(self.graph, seconds, clock, instant_id=requested)
+            self.assertIsInstance(instant, URIRef)
+            if requested is not None:
+                self.assertEqual(instant, requested)
+            position = self.graph.value(instant, TIME.inTimePosition)
+            self.assertIsInstance(position, BNode)
             self.assertIn((instant, RDF.type, TIME.Instant), self.graph)
-            self.assertEqual(self.graph.value(instant, TIME.inTimePosition), position)
+            before = set(self.graph)
+            self.assertEqual(
+                add_trs_relative_instant(self.graph, seconds, clock, instant_id=instant), instant
+            )
+            self.assertEqual(set(self.graph), before)
             self.assertIn((position, RDF.type, TIME.TimePosition), self.graph)
             self.assertEqual(
                 self.graph.value(position, TIME.numericPosition),
@@ -50,8 +59,10 @@ class TimeTest(unittest.TestCase):
         for stamp in (self.stamp, self.stamp.astimezone(timezone(timedelta(hours=2)))):
             with self.subTest(stamp=stamp):
                 graph = Graph()
-                instant = BNode()
-                add_wall_instant(graph, instant, stamp)
+                instant = add_wall_instant(graph, stamp)
+                self.assertIsInstance(instant, URIRef)
+                self.assertNotEqual(instant, add_wall_instant(Graph(), stamp))
+                self.assertEqual(add_wall_instant(graph, stamp, instant_id=TEST.wall), TEST.wall)
                 value = graph.value(instant, TIME.inXSDDateTimeStamp)
                 self.assertIn((instant, RDF.type, TIME.Instant), graph)
                 self.assertEqual(value.datatype, XSD.dateTimeStamp)
@@ -64,12 +75,10 @@ class TimeTest(unittest.TestCase):
         before = set(self.graph)
         for seconds in (float("nan"), float("inf"), -float("inf")):
             with self.subTest(seconds=seconds), self.assertRaises(ValueError):
-                add_trs_relative_instant(
-                    self.graph, TEST.instant, TEST.position, seconds, TEST.clock
-                )
+                add_trs_relative_instant(self.graph, seconds, TEST.clock, instant_id=TEST.instant)
             self.assertEqual(set(self.graph), before)
         with self.assertRaises(ValueError):
-            add_wall_instant(self.graph, TEST.instant, self.stamp.replace(tzinfo=None))
+            add_wall_instant(self.graph, self.stamp.replace(tzinfo=None), instant_id=TEST.instant)
         self.assertEqual(set(self.graph), before)
 
     def test_wall_shape_rejects_wrong_datatype_or_missing_timezone(self):
@@ -85,8 +94,8 @@ class TimeTest(unittest.TestCase):
                     check_shacl_constraints(graph, SHAPES)
 
     def test_wall_shape_rejects_multiple_timestamps(self):
-        add_wall_instant(self.graph, TEST.wall, self.stamp)
-        add_wall_instant(self.graph, TEST.wall, self.stamp + timedelta(seconds=1))
+        add_wall_instant(self.graph, self.stamp, instant_id=TEST.wall)
+        add_wall_instant(self.graph, self.stamp + timedelta(seconds=1), instant_id=TEST.wall)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHAPES)
 
@@ -98,10 +107,10 @@ class TimeTest(unittest.TestCase):
                 {
                     "@id": str(TEST.instant),
                     "@type": "Instant",
-                    "in-time-position": str(TEST.position),
+                    "in-time-position": "_:position",
                 },
                 {
-                    "@id": str(TEST.position),
+                    "@id": "_:position",
                     "@type": "TimePosition",
                     "as-seen-by": str(TEST.clock),
                     "numeric-position": 1.5,
@@ -115,8 +124,8 @@ class TimeTest(unittest.TestCase):
             ],
         }
         actual = Graph().parse(data=json.dumps(document), format="json-ld")
-        add_trs_relative_instant(self.graph, TEST.instant, TEST.position, 1.5, TEST.clock)
-        add_wall_instant(self.graph, TEST.wall, self.stamp)
+        add_trs_relative_instant(self.graph, 1.5, TEST.clock, instant_id=TEST.instant)
+        add_wall_instant(self.graph, self.stamp, instant_id=TEST.wall)
         self.graph.add((TEST.observation, TIME.hasTime, TEST.instant))
         self.assertTrue(isomorphic(actual, self.graph))
         check_shacl_constraints(actual, SHAPES)

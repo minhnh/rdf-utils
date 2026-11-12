@@ -12,9 +12,7 @@ from uuid import UUID, uuid4
 from rdflib import Graph, Namespace, URIRef
 
 from rdf_utils.models.prov import (
-    add_directory_location,
-    add_file_entity,
-    add_file_hash,
+    capture_file_prov,
     get_py_pkg_info,
     load_pkg_prov,
 )
@@ -130,35 +128,7 @@ def add_import_prov(
             load_pkg_prov(graph, info)
             roots[directory] = info.purl
 
-    selected = None
-    best_rank = (False, -1)
-    for directory, identity in roots.items():
-        if not path.is_relative_to(directory):
-            continue
-
-        # Prefer package roots, then depth; keep directory roots as a fallback.
-        rank = identity.startswith("pkg:"), len(directory.parts)
-        if rank <= best_rank:
-            continue
-
-        selected = directory, identity
-        best_rank = rank
-
-    if selected is None:
-        directory = path.parent
-        identity = add_directory_location(graph, directory)
-        roots[directory] = identity
-    else:
-        directory, identity = selected
-
-    file_id = add_file_entity(graph, identity, path.relative_to(directory))
-    try:
-        add_file_hash(graph, file_id)
-    except FileNotFoundError:
-        if not allow_missing:
-            raise
-
-    return file_id
+    return capture_file_prov(graph, path, roots=roots, allow_missing=allow_missing)
 
 
 def add_model_prov(
