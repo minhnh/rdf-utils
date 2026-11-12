@@ -86,11 +86,13 @@ class ColorTest(unittest.TestCase):
 
     def test_malformed_color_is_reported(self):
         for scheme, value, message in (
-            (ColorScheme.RGB, "#12345", "invalid RGB value '#12345': expected 6 hex digits"),
+            (ColorScheme.RGB, "#12345", "needs 6 hex digits for RGB: '#12345'"),
+            (ColorScheme.RGB, "#+f+f+f", "needs 6 hex digits for RGB: '#+f+f+f'"),
+            (ColorScheme.RGB, "red 0 0", "needs RGB channels as numbers: 'red 0 0'"),
             (ColorScheme.RGBA, "0.9 0.2 0.2", "needs 4 RGBA channels"),
             (ColorScheme.RGB, "1.5 0 0", "needs RGB channels in [0, 1]"),
             (ColorScheme.RGB, "nan 0 0", "needs RGB channels in [0, 1]"),
-            (ColorScheme.HSV, "#FF0000", "invalid HSV value '#FF0000': hex writes RGB(A)"),
+            (ColorScheme.HSV, "#FF0000", "hex value '#FF0000'; hex writes RGB(A), not HSV"),
             (ColorScheme.HSV, "360 0.5 0.5", "needs HSV hue in [0, 360)"),
             (ColorScheme.HSV, "10 1.5 0.5", "saturation and value in [0, 1]"),
             (ColorScheme.HSV, "10 -inf 0.5", "saturation and value in [0, 1]"),

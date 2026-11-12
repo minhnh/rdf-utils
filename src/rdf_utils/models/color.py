@@ -8,6 +8,7 @@ first use. A consumer that takes RGBA, as MJCF, URDF and SDF do, asks for `Color
 """
 
 import colorsys
+import string
 from enum import Enum
 
 from rdflib import RDF, Graph, Literal, URIRef
@@ -96,23 +97,30 @@ class ColorModel(ModelBase):
             )
         self.value = value = str(literal)
         count = CHANNEL_COUNTS[scheme]
-        try:
-            if not value.startswith("#"):
+        if value.startswith("#"):
+            digits = value[1:]
+            if scheme is ColorScheme.HSV:
+                raise ConstraintViolation(
+                    "color",
+                    f"color '{self.id}' has hex value '{value}'; hex writes RGB(A), not HSV",
+                )
+            if len(digits) != 2 * count or not all(d in string.hexdigits for d in digits):
+                raise ConstraintViolation(
+                    "color",
+                    f"color '{self.id}' needs {2 * count} hex digits for {scheme.name}: '{value}'",
+                )
+            channels = [int(digits[i : i + 2], 16) / 255 for i in range(0, len(digits), 2)]
+        else:
+            try:
                 channels = [float(channel) for channel in value.split()]
-            elif scheme is ColorScheme.HSV:
-                raise ValueError("hex writes RGB(A) channels, not HSV")
-            elif len(value) != 1 + 2 * count:
-                raise ValueError(f"expected {2 * count} hex digits")
-            else:
-                channels = [int(value[i : i + 2], 16) / 255 for i in range(1, len(value), 2)]
-        except ValueError as error:
-            raise ConstraintViolation(
-                "color", f"color '{self.id}' has an invalid {scheme.name} value '{value}': {error}"
-            ) from error
-        if len(channels) != count:
-            raise ConstraintViolation(
-                "color", f"color '{self.id}' needs {count} {scheme.name} channels: '{value}'"
-            )
+            except ValueError:
+                raise ConstraintViolation(
+                    "color", f"color '{self.id}' needs {scheme.name} channels as numbers: '{value}'"
+                ) from None
+            if len(channels) != count:
+                raise ConstraintViolation(
+                    "color", f"color '{self.id}' needs {count} {scheme.name} channels: '{value}'"
+                )
 
         self._rgb = self._rgba = self._hsv = None
         if scheme is ColorScheme.HSV:
