@@ -22,6 +22,7 @@ from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 from rdflib.term import Node
 
+from rdf_utils.models.time import add_wall_instant
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
     URI_PROV_EXT_TYPE_EXECUTION,
@@ -136,6 +137,68 @@ def add_file_hash(graph: Graph, file_id: URIRef) -> None:
         digest = hashlib.file_digest(file, "sha256").digest()
     encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     graph.add((file_id, DCTERMS.identifier, Literal(f"ni:///sha-256;{encoded}")))
+
+
+def capture_file_prov(
+    graph: Graph,
+    path: str | Path,
+    *,
+    roots: dict[Path, URIRef],
+    captured: dict[Path, URIRef] | None = None,
+    allow_missing: bool = False,
+) -> URIRef:
+    """Record a file's location and hash, reusing known roots and previously captured files.
+
+    Parameters:
+        graph: RDF graph receiving provenance.
+        path: Local file path, resolved before lookup.
+        roots: Shared directory-to-identity map. Prefer package roots, then the deepest match;
+            register a directory root when none matches. Roots must resolve locally for hashing.
+        captured: Optional file-path-to-entity map; reuse the first capture without reading again.
+        allow_missing: Keep the file location without a hash when the file is missing.
+
+    Returns:
+        File entity URI.
+
+    Raises:
+        FileNotFoundError: When the file is missing and allow_missing is False.
+        OSError: When the file cannot be read.
+    """
+    path = Path(path).expanduser().resolve()
+    if captured is not None and path in captured:
+        return captured[path]
+
+    selected = None
+    best_rank = (False, -1)
+    for directory, identity in roots.items():
+        if not path.is_relative_to(directory):
+            continue
+
+        # Prefer package roots, then depth; keep directory roots as a fallback.
+        rank = identity.startswith("pkg:"), len(directory.parts)
+        if rank <= best_rank:
+            continue
+
+        selected = directory, identity
+        best_rank = rank
+
+    if selected is None:
+        directory = path.parent
+        identity = add_directory_location(graph, directory)
+        roots[directory] = identity
+    else:
+        directory, identity = selected
+
+    file_id = add_file_entity(graph, identity, path.relative_to(directory))
+    try:
+        add_file_hash(graph, file_id)
+    except FileNotFoundError:
+        if not allow_missing:
+            raise
+
+    if captured is not None:
+        captured[path] = file_id
+    return file_id
 
 
 def add_relative_location(graph: Graph, root: URIRef, rel_path: str) -> URIRef:
@@ -685,29 +748,43 @@ def load_ros_pkg_prov(
 
 def load_transformation_prov(
     graph: Graph,
-    activity_id: URIRef,
     sources: Collection[URIRef],
     targets: Collection[URIRef],
     pkg_id: URIRef,
-    started: URIRef,
-    ended: URIRef | None = None,
     *,
+    activity_id: URIRef | None = None,
+    started: URIRef | datetime,
+    ended: URIRef | datetime | None = None,
     influenced: Collection[URIRef] = (),
-) -> None:
+) -> URIRef:
     """Record a transformation, deriving every target from every source.
 
-    The transformation shape requires at least one generated target.
+    The transformation shape requires at least one generated target. Datetime boundaries
+    create wall-clock instant nodes; URI boundaries refer to existing instants.
 
     Parameters:
         graph: RDF graph receiving provenance
-        activity_id: URI of the transformation
+        activity_id: URI of the transformation; a fresh UUID URI is created when omitted
         sources: Reusable collection of source entity URIs, e.g. a list, tuple or set
         targets: Collection of generated target entity URIs
         pkg_id: URI of the software package that ran the transformation
-        started: URI of the start instant
-        ended: URI of the end instant, None while still running
+        started: Start instant URI or timezone-aware datetime
+        ended: End instant URI or timezone-aware datetime; None while still running
         influenced: Collection of additional target entity URIs influenced by the activity
+
+    Returns:
+        Transformation activity URI.
+
+    Raises:
+        ValueError: When a datetime boundary has no timezone.
     """
+    if activity_id is None:
+        activity_id = URIRef(uuid4().urn)
+    if isinstance(started, datetime):
+        started = add_wall_instant(graph, started)
+    if isinstance(ended, datetime):
+        ended = add_wall_instant(graph, ended)
+
     add_activity(
         graph, activity_id, (URI_PROV_EXT_TYPE_TRANSFORMATION,), sources, pkg_id, started, ended
     )
@@ -720,6 +797,8 @@ def load_transformation_prov(
             graph.add((target, relation, activity_id))
             for source in sources:
                 graph.add((target, PROV.wasDerivedFrom, source))
+
+    return activity_id
 
 
 def load_sampling_prov(

@@ -25,6 +25,7 @@ from rdf_utils.models.prov import (
     add_file_entity,
     add_file_hash,
     add_relative_location,
+    capture_file_prov,
     create_bundle,
     get_file_path,
     get_git_info,
@@ -87,8 +88,8 @@ class ProvTest(unittest.TestCase):
         self.t1 = self.t0 + timedelta(seconds=30)
         self.start = URIRef(f"{URI_TEST}/start")
         self.end = URIRef(f"{URI_TEST}/end")
-        add_wall_instant(self.graph, self.start, self.t0)
-        add_wall_instant(self.graph, self.end, self.t1)
+        add_wall_instant(self.graph, self.t0, instant_id=self.start)
+        add_wall_instant(self.graph, self.t1, instant_id=self.end)
         load_pkg_prov(
             self.graph,
             PackageInfo(
@@ -301,31 +302,51 @@ class ProvTest(unittest.TestCase):
     def test_transformation(self):
         existing = URIRef(f"{URI_TEST}/shared-graph")
         sources = [SPEC, QUANTITY]
-        load_transformation_prov(
-            self.graph,
-            TRANSFORM,
-            sources,
-            [MODEL],
-            PKG,
-            self.start,
-            self.end,
-            influenced={existing},
-        )
-        self.assertIn((TRANSFORM, RDF.type, URI_PROV_EXT_TYPE_TRANSFORMATION), self.graph)
-        self.assertIn((TRANSFORM, PROV.wasAssociatedWith, PKG), self.graph)
-        self.assertIn((MODEL, PROV.wasGeneratedBy, TRANSFORM), self.graph)
-        self.assertIn((existing, RDF.type, PROV.Entity), self.graph)
-        self.assertIn((existing, PROV.wasInfluencedBy, TRANSFORM), self.graph)
-        self.assertNotIn((existing, PROV.wasGeneratedBy, TRANSFORM), self.graph)
-        for source in sources:
-            self.assertIn((TRANSFORM, PROV.used, source), self.graph)
-            for target in (MODEL, existing):
-                self.assertIn((target, PROV.wasDerivedFrom, source), self.graph)
-        self.assertEqual(self.graph.value(TRANSFORM, TIME.hasBeginning), self.start)
-        self.assertEqual(self.graph.value(TRANSFORM, TIME.hasEnd), self.end)
-        self.assertIsNone(self.graph.value(TRANSFORM, PROV.startedAtTime))
-        self.assertIsNone(self.graph.value(TRANSFORM, PROV.endedAtTime))
-        check_shacl_constraints(self.graph, SHACL)
+        activities = set()
+        for requested, started, ended in (
+            (TRANSFORM, self.start, self.end),
+            (None, self.t0, self.t1),
+            (None, self.start, None),
+        ):
+            with self.subTest(started=started, ended=ended):
+                graph = Graph()
+                graph += self.graph
+                activity = load_transformation_prov(
+                    graph,
+                    sources,
+                    [MODEL],
+                    PKG,
+                    activity_id=requested,
+                    started=started,
+                    ended=ended,
+                    influenced={existing},
+                )
+                self.assertIsInstance(activity, URIRef)
+                if requested is not None:
+                    self.assertEqual(activity, requested)
+                self.assertNotIn(activity, activities)
+                activities.add(activity)
+                self.assertIn((activity, RDF.type, URI_PROV_EXT_TYPE_TRANSFORMATION), graph)
+                self.assertIn((activity, PROV.wasAssociatedWith, PKG), graph)
+                self.assertIn((MODEL, PROV.wasGeneratedBy, activity), graph)
+                self.assertIn((existing, RDF.type, PROV.Entity), graph)
+                self.assertIn((existing, PROV.wasInfluencedBy, activity), graph)
+                self.assertNotIn((existing, PROV.wasGeneratedBy, activity), graph)
+                for source in sources:
+                    self.assertIn((activity, PROV.used, source), graph)
+                    for target in (MODEL, existing):
+                        self.assertIn((target, PROV.wasDerivedFrom, source), graph)
+                for predicate, boundary in ((TIME.hasBeginning, started), (TIME.hasEnd, ended)):
+                    instant = graph.value(activity, predicate)
+                    if isinstance(boundary, datetime):
+                        self.assertEqual(
+                            str(graph.value(instant, TIME.inXSDDateTimeStamp)), boundary.isoformat()
+                        )
+                    else:
+                        self.assertEqual(instant, boundary)
+                self.assertIsNone(graph.value(activity, PROV.startedAtTime))
+                self.assertIsNone(graph.value(activity, PROV.endedAtTime))
+                check_shacl_constraints(graph, SHACL)
 
     def test_bundle_is_a_named_graph_in_the_dataset_attributed_to_its_tool(self):
         dataset = Dataset()
@@ -352,11 +373,20 @@ class ProvTest(unittest.TestCase):
         check_shacl_constraints(self.graph, SHACL)
 
     def test_transformation_needs_target(self):
-        load_transformation_prov(self.graph, TRANSFORM, [SPEC], [], PKG, self.start, self.end)
+        load_transformation_prov(
+            self.graph, [SPEC], [], PKG, activity_id=TRANSFORM, started=self.start, ended=self.end
+        )
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
         load_transformation_prov(
-            self.graph, TRANSFORM, [SPEC], [], PKG, self.start, self.end, influenced=[MODEL]
+            self.graph,
+            [SPEC],
+            [],
+            PKG,
+            activity_id=TRANSFORM,
+            started=self.start,
+            ended=self.end,
+            influenced=[MODEL],
         )
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHACL)
@@ -382,9 +412,7 @@ class ProvTest(unittest.TestCase):
         clock = URIRef(f"{URI_TEST}/simulation-clock")
         start, end = URIRef(f"{URI_TEST}/runtime-start"), URIRef(f"{URI_TEST}/runtime-end")
         for instant, seconds in ((start, 0.0), (end, 1.0)):
-            add_trs_relative_instant(
-                self.graph, instant, URIRef(f"{instant}/position"), seconds, clock
-            )
+            add_trs_relative_instant(self.graph, seconds, clock, instant_id=instant)
         load_execution_prov(self.graph, RUN, [MODEL], PKG, start, end)
         self.assertEqual(self.graph.value(RUN, TIME.hasBeginning), start)
         self.assertEqual(self.graph.value(RUN, TIME.hasEnd), end)
@@ -651,3 +679,22 @@ def test_python_package_loading_retains_generic_fallback_and_graph_options():
     assert (info.purl, RDF.type, extra_type) in graph
     assert graph.value(info.purl, PROV.atLocation) == location
     assert graph.value(info.purl, SDO.name) == Literal(name)
+
+
+def test_file_capture_reuses_roots_and_snapshot_without_rereading(tmp_path):
+    graph = Graph()
+    source = tmp_path / "models" / "model.ttl"
+    source.parent.mkdir()
+    source.write_text("example")
+    root = add_directory_location(graph, tmp_path)
+    roots, captured = {tmp_path: root}, {}
+    file_id = capture_file_prov(graph, source, roots=roots, captured=captured)
+    location = graph.value(file_id, PROV.atLocation)
+    assert graph.value(location, PROV.atLocation) == root
+    assert get_file_path(graph, file_id) == source
+    digest = graph.value(file_id, DCTERMS.identifier)
+    assert digest is not None
+    source.unlink()
+    assert capture_file_prov(graph, source, roots=roots, captured=captured) == file_id
+    assert graph.value(file_id, DCTERMS.identifier) == digest
+    assert roots == {tmp_path: root}
