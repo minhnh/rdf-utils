@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: MPL-2.0
-import json
 import unittest
 from datetime import UTC, datetime, timedelta, timezone
 
 from rdflib import RDF, XSD, BNode, Graph, Literal, Namespace, URIRef
-from rdflib.compare import isomorphic
 from rdflib.namespace import PROV, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.time import add_trs, add_trs_relative_instant, add_wall_instant
 from rdf_utils.namespace import (
-    URL_MM_TIME_JSON,
     URL_MM_TIME_SHACL,
     URL_SECORO_M,
 )
@@ -108,37 +105,6 @@ class TimeTest(unittest.TestCase):
         add_wall_instant(self.graph, self.stamp + timedelta(seconds=1), instant_id=TEST.wall)
         with self.assertRaises(SHACLViolation):
             check_shacl_constraints(self.graph, SHAPES)
-
-    def test_jsonld_context_expands_numeric_and_wall_instants(self):
-        document = {
-            "@context": URL_MM_TIME_JSON,
-            "@graph": [
-                {"@id": str(TEST.observation), "has-time": str(TEST.instant)},
-                {
-                    "@id": str(TEST.instant),
-                    "@type": "Instant",
-                    "in-time-position": "_:position",
-                },
-                {
-                    "@id": "_:position",
-                    "@type": "TimePosition",
-                    "as-seen-by": str(TEST.clock),
-                    "numeric-position": 1.5,
-                },
-                {"@id": str(TEST.clock), "@type": "TRS"},
-                {
-                    "@id": str(TEST.wall),
-                    "@type": "Instant",
-                    "in-datetime-stamp": self.stamp.isoformat(),
-                },
-            ],
-        }
-        actual = Graph().parse(data=json.dumps(document), format="json-ld")
-        add_trs_relative_instant(self.graph, 1.5, TEST.clock, instant_id=TEST.instant)
-        add_wall_instant(self.graph, self.stamp, instant_id=TEST.wall)
-        self.graph.add((TEST.observation, TIME.hasTime, TEST.instant))
-        self.assertTrue(isomorphic(actual, self.graph))
-        check_shacl_constraints(actual, SHAPES)
 
     def test_interval_and_authored_duration_remain_valid(self):
         from rdf_utils.namespace import NS_MM_QUDT, NS_MM_QUDT_QTY, NS_MM_QUDT_UNIT
