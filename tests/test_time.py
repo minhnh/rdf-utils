@@ -8,7 +8,7 @@ from rdflib.compare import isomorphic
 from rdflib.namespace import PROV, TIME
 
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
-from rdf_utils.models.time import add_trs_relative_instant, add_wall_instant
+from rdf_utils.models.time import add_trs, add_trs_relative_instant, add_wall_instant
 from rdf_utils.namespace import (
     URL_MM_TIME_JSON,
     URL_MM_TIME_SHACL,
@@ -25,6 +25,16 @@ class TimeTest(unittest.TestCase):
         install_resolver()
         self.graph = Graph()
         self.stamp = datetime(2026, 10, 27, 12, tzinfo=UTC)
+
+    def test_trs_ids_are_created_or_reused(self):
+        first = add_trs(self.graph)
+        second = add_trs(self.graph)
+        self.assertIsInstance(first, URIRef)
+        self.assertNotEqual(first, second)
+        before = set(self.graph)
+        self.assertEqual(add_trs(self.graph, trs_id=first), first)
+        self.assertEqual(set(self.graph), before)
+        self.assertEqual(set(self.graph.subjects(RDF.type, TIME.TRS)), {first, second})
 
     def test_numeric_instants_keep_occurrence_and_clock_identity(self):
         seconds = 1234567890.1234567

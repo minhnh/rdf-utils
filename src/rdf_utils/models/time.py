@@ -6,7 +6,24 @@ from math import isfinite
 from uuid import uuid4
 
 from rdflib import RDF, XSD, BNode, Graph, Literal, URIRef
-from rdflib.namespace import TIME
+from rdflib.namespace import PROV, TIME
+
+
+def add_trs(graph: Graph, *, trs_id: URIRef | None = None) -> URIRef:
+    """Add a temporal reference system, creating a UUID URI when its ID is omitted.
+
+    Parameters:
+        graph: RDF graph to add the reference system to
+        trs_id: Reference system URI; a fresh UUID URI is generated when omitted.
+
+    Returns:
+        Reference system URI.
+    """
+    if trs_id is None:
+        trs_id = URIRef(uuid4().urn)
+    graph.add((trs_id, RDF.type, TIME.TRS))
+    graph.add((trs_id, RDF.type, PROV.Entity))
+    return trs_id
 
 
 def add_trs_relative_instant(
@@ -47,7 +64,7 @@ def add_trs_relative_instant(
     graph.add((position_id, RDF.type, TIME.TimePosition))
     graph.add((position_id, TIME.numericPosition, Literal(seconds, datatype=XSD.double)))
     graph.add((position_id, TIME.hasTRS, trs_id))
-    graph.add((trs_id, RDF.type, TIME.TRS))
+    add_trs(graph, trs_id=trs_id)
 
     return instant_id
 
