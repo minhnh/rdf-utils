@@ -146,23 +146,20 @@ class ColorModel(ModelBase):
         if self.scheme is ColorScheme.HSV:
             hue, saturation, brightness = self._channels
             return colorsys.hsv_to_rgb(hue / 360, saturation, brightness)
-        red, green, blue = self._channels[:3]
-        return (red, green, blue)
+        return tuple(self._channels[:3])
 
     @property
     def rgba(self) -> tuple[float, float, float, float]:
         """Red, green, blue and alpha in [0, 1]. RGB and HSV are opaque."""
         if self.scheme is ColorScheme.RGBA:
-            red, green, blue, alpha = self._channels
-            return (red, green, blue, alpha)
+            return tuple(self._channels)
         return (*self.rgb, 1.0)
 
     @property
     def hsv(self) -> tuple[float, float, float]:
         """Hue in degrees [0, 360), then saturation and value in [0, 1]. RGBA's alpha dropped."""
         if self.scheme is ColorScheme.HSV:
-            hue, saturation, brightness = self._channels
-            return (hue, saturation, brightness)
+            return tuple(self._channels)
         hue, saturation, brightness = colorsys.rgb_to_hsv(*self.rgb)
         return (hue * 360, saturation, brightness)
 
