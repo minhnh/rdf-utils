@@ -77,7 +77,7 @@ class ColorModel(ModelBase):
     scheme: ColorScheme
     value: str
     # The channels of `value`, in `scheme`.
-    _channels: tuple[float, ...]
+    _channels: list[float]
 
     def __init__(self, color_id: URIRef, graph: Graph) -> None:
         super().__init__(node_id=color_id, graph=graph)
@@ -138,7 +138,7 @@ class ColorModel(ModelBase):
                 "color",
                 f"color '{self.id}' needs {self.scheme.name} channels in [0, 1]: '{self.value}'",
             )
-        self._channels = tuple(channels)
+        self._channels = channels
 
     @property
     def rgb(self) -> tuple[float, float, float]:
