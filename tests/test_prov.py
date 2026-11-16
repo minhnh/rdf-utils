@@ -728,3 +728,27 @@ def test_file_capture_reuses_roots_and_snapshot_without_rereading(tmp_path):
     assert capture_file_prov(graph, source, roots=roots, captured=captured) == file_id
     assert graph.value(file_id, DCTERMS.identifier) == digest
     assert roots == {tmp_path: root}
+
+
+def test_file_capture_states_the_git_revision_only_outside_a_package(tmp_path):
+    with Repo.init(tmp_path) as repo:
+        source = tmp_path / "model.ttl"
+        source.write_text("example")
+        repo.index.add(["model.ttl"])
+        commit = repo.index.commit("Initial commit")
+        repo.create_remote("origin", "git@github.com:example/models.git")
+    directory_graph = Graph()
+    file_id = capture_file_prov(directory_graph, source, roots={})
+    assert directory_graph.value(file_id, SDO.identifier) == Literal(commit.hexsha)
+    assert directory_graph.value(file_id, SDO.codeRepository) == URIRef(
+        "https://github.com/example/models"
+    )
+    # rdf_utils is itself in a checkout, so only the package root keeps its revision off the file.
+    package_graph = Graph()
+    info = get_py_pkg_info("rdf_utils")
+    load_pkg_prov(package_graph, info)
+    file_id = capture_file_prov(
+        package_graph, info.directory / "models" / "prov.py", roots={info.directory: info.purl}
+    )
+    assert package_graph.value(file_id, SDO.identifier) is None
+    assert package_graph.value(file_id, SDO.codeRepository) is None

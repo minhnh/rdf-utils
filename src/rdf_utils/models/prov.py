@@ -149,6 +149,9 @@ def capture_file_prov(
 ) -> URIRef:
     """Record a file's location and hash, reusing known roots and previously captured files.
 
+    A file outside a package root also gets its git revision and repository when it is in a
+    repository; a package root's are stated by `load_pkg_prov`.
+
     Parameters:
         graph: RDF graph receiving provenance.
         path: Local file path, resolved before lookup.
@@ -195,6 +198,13 @@ def capture_file_prov(
     except FileNotFoundError:
         if not allow_missing:
             raise
+
+    if not identity.startswith("pkg:"):
+        commit, repository, _, dirty = get_git_info(path)
+        if commit is not None:
+            graph.add((file_id, SDO.identifier, Literal(f"{commit}-dirty" if dirty else commit)))
+        if repository is not None:
+            graph.add((file_id, SDO.codeRepository, URIRef(repository)))
 
     if captured is not None:
         captured[path] = file_id
