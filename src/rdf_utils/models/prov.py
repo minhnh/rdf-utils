@@ -336,12 +336,12 @@ def get_file_path(graph: Graph, node: Node) -> Path | None:
     return path_from_file_url(str(resolved))
 
 
-def get_linked_file_path(graph: Graph, node: Node, predicate: URIRef) -> Path | None:
+def get_linked_file_path(graph: Graph, node_id: URIRef, predicate: URIRef) -> Path | None:
     """Resolve the local file linked from a node through a supplied predicate.
 
     Parameters:
         graph: RDF graph describing the node and linked file
-        node: node linking to the file entity
+        node_id: URI of node linking to the file entity
         predicate: relation to follow, e.g. `dcterms:source` or `prov:wasDerivedFrom`
 
     Returns:
@@ -350,7 +350,7 @@ def get_linked_file_path(graph: Graph, node: Node, predicate: URIRef) -> Path | 
     Raises:
         ValueError: when the linked location cannot resolve to a local file
     """
-    file_id = graph.value(node, predicate)
+    file_id = graph.value(node_id, predicate)
     return get_file_path(graph, file_id) if file_id is not None else None
 
 
