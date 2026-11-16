@@ -34,14 +34,20 @@ from rdf_utils.models.vocab import (
 )
 
 
-def add_entity(graph: Graph, entity_id: URIRef) -> None:
+def add_entity(graph: Graph, entity_id: URIRef | None = None) -> URIRef:
     """Type a node as `prov:Entity`.
 
     Parameters:
         graph: RDF graph to add the entity to
-        entity_id: URI of the entity
+        entity_id: Entity URI; a fresh UUID URI is generated when omitted.
+
+    Returns:
+        Entity URI.
     """
+    if entity_id is None:
+        entity_id = URIRef(uuid4().urn)
     graph.add((entity_id, RDF.type, PROV.Entity))
+    return entity_id
 
 
 def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
@@ -328,6 +334,24 @@ def get_file_path(graph: Graph, node: Node) -> Path | None:
             f"'{node}' is at '{resolved}' -- a '{scheme}:' IRI, not a local `file:` path"
         )
     return path_from_file_url(str(resolved))
+
+
+def get_linked_file_path(graph: Graph, node_id: URIRef, predicate: URIRef) -> Path | None:
+    """Resolve the local file linked from a node through a supplied predicate.
+
+    Parameters:
+        graph: RDF graph describing the node and linked file
+        node_id: URI of node linking to the file entity
+        predicate: relation to follow, e.g. `dcterms:source` or `prov:wasDerivedFrom`
+
+    Returns:
+        File path; None when the link or file location is absent.
+
+    Raises:
+        ValueError: when the linked location cannot resolve to a local file
+    """
+    file_id = graph.value(node_id, predicate)
+    return get_file_path(graph, file_id) if file_id is not None else None
 
 
 def add_agent(

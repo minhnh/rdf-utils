@@ -29,6 +29,7 @@ from rdf_utils.models.prov import (
     create_bundle,
     get_file_path,
     get_git_info,
+    get_linked_file_path,
     get_pkg_url,
     get_py_pkg_info,
     get_ros_pkg_info,
@@ -596,6 +597,32 @@ class ProvTest(unittest.TestCase):
         self.graph.add((SAMPLE, PROV.atLocation, URIRef("https://example.org/data/scan.bag")))
         with self.assertRaises(ValueError):
             get_file_path(self.graph, SAMPLE)
+
+    def test_entity_ids_are_created_or_reused(self):
+        first, second = add_entity(self.graph), add_entity(self.graph)
+        self.assertIsInstance(first, URIRef)
+        self.assertNotEqual(first, second)
+        self.assertIn((first, RDF.type, PROV.Entity), self.graph)
+        before = set(self.graph)
+        self.assertEqual(add_entity(self.graph, first), first)
+        self.assertEqual(set(self.graph), before)
+
+    def test_linked_file_path_follows_the_requested_predicate(self):
+        root = add_directory_location(self.graph, "/tmp/models")
+        file_id = add_file_entity(self.graph, root, "robot.xml")
+        for predicate in (DCTERMS.source, PROV.wasDerivedFrom):
+            with self.subTest(predicate=predicate):
+                self.assertIsNone(get_linked_file_path(self.graph, MODEL, predicate))
+                self.graph.add((MODEL, predicate, SAMPLE))
+                self.assertIsNone(get_linked_file_path(self.graph, MODEL, predicate))
+                self.graph.set((MODEL, predicate, file_id))
+                self.assertEqual(
+                    get_linked_file_path(self.graph, MODEL, predicate),
+                    Path("/tmp/models/robot.xml"),
+                )
+        self.graph.set((file_id, PROV.atLocation, URIRef("https://example.org/robot.xml")))
+        with self.assertRaises(ValueError):
+            get_linked_file_path(self.graph, MODEL, DCTERMS.source)
 
     def test_path_and_root_must_agree(self):
         generations = add_directory_location(self.graph, "/tmp/generations")
