@@ -767,8 +767,8 @@ def create_pkg_bundle(dataset: Dataset, name: str) -> tuple[URIRef, PackageInfo]
         name: Python import name, e.g. `scene_dsl`, not `scene-dsl`
 
     Returns:
-        The ID of the bundle and the package; pass its purl to `gen_model_graph` and the
-        package to `gen_graph_text`
+        The ID of the bundle and the package; pass its purl to `record_model_to_graph` and
+        the package to `record_graph_to_text`
     """
     info = get_py_pkg_info(name)
     bundle_id = create_bundle(dataset, info.purl)
@@ -859,7 +859,7 @@ def load_transformation_prov(
     return activity_id
 
 
-def gen_graph_text(
+def record_graph_to_text(
     dataset: Dataset,
     graph_id: URIRef,
     bundle_id: URIRef,
@@ -872,7 +872,7 @@ def gen_graph_text(
 
     Parameters:
         dataset: the dataset holding the graph and the bundle
-        graph_id: the graph to write, e.g. from `gen_model_graph`
+        graph_id: the graph to write, e.g. from `record_model_to_graph`
         bundle_id: the `prov:Bundle` in the dataset to record in
         info: the package that writes the text, from `create_pkg_bundle`
         render_text: renders the text of the graph, e.g. from a template

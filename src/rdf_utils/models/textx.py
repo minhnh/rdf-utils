@@ -162,7 +162,7 @@ def add_model_prov(
     }
 
 
-def gen_model_graph(
+def record_model_to_graph(
     model: Any,
     dataset: Dataset,
     bundle_id: URIRef,
