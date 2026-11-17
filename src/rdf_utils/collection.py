@@ -88,47 +88,63 @@ def load_list_re(
     return _load_list_re(graph, first_node, node_set, parse_uri, quiet)
 
 
-def value_to_node(graph: Graph, value: Any) -> Node:
+def value_to_node(graph: Graph, value: Any, *, active_iterables: set[int] | None = None) -> Node:
     """Represent a value as an RDF term, adding collection triples as needed.
 
     Parameters:
         graph: Graph receiving nested list/tuple collections.
         value: RDF term, supported Python scalar or nested ordered collection.
+        active_iterables: Collection identities on the current recursion path.
 
     Returns:
         Original RDF term, converted literal or collection head.
 
     Raises:
         TypeError: If the value has an unsupported type.
+        ValueError: If nested Python collections contain a cycle.
     """
     if isinstance(value, (URIRef, BNode, Literal)):
         return value
     if isinstance(value, (list, tuple)):
-        return add_list_re(graph, value).uri
+        return add_list_re(graph, value, active_iterables=active_iterables).uri
     if isinstance(value, (str, bool, int, float, Decimal, date, datetime, time)):
         return Literal(value)
     raise TypeError(f"Unsupported RDF value: {type(value).__name__}")
 
 
-def add_list_re(graph: Graph, values: list[Any] | tuple[Any, ...]) -> Collection:
+def add_list_re(
+    graph: Graph,
+    values: list[Any] | tuple[Any, ...],
+    *,
+    active_iterables: set[int] | None = None,
+) -> Collection:
     """Write nested ordered values as RDF collections.
 
     Parameters:
         graph: Graph receiving the list triples.
-        values: Acyclic lists/tuples containing RDF terms and Python scalars.
+        values: Lists/tuples containing RDF terms and Python scalars.
+        active_iterables: Collection identities on the current recursion path.
 
     Returns:
         Collection whose uri is the list head, or rdf:nil for an empty list.
 
     Raises:
         TypeError: If a value has an unsupported type.
+        ValueError: If nested Python collections contain a cycle.
     """
-    nodes = [value_to_node(graph, value) for value in values]
-
-    if nodes:
-        return Collection(graph, BNode(), nodes)
-
-    return Collection(graph, RDF.nil)
+    if active_iterables is None:
+        active_iterables = set()
+    identity = id(values)
+    if identity in active_iterables:
+        raise ValueError("Cycle detected in Python collection")
+    active_iterables.add(identity)
+    try:
+        nodes = [value_to_node(graph, value, active_iterables=active_iterables) for value in values]
+        if nodes:
+            return Collection(graph, BNode(), nodes)
+        return Collection(graph, RDF.nil)
+    finally:
+        active_iterables.remove(identity)
 
 
 def add_node_list_pred(

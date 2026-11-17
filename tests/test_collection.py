@@ -115,6 +115,29 @@ class RecursiveCollectionTest(unittest.TestCase):
         parent = add_list_re(graph, [child.uri, child.uri])
         self.assertEqual(load_list_re(graph, parent.uri), [[1], [1]])
 
+    def test_python_cycles_and_shared_sublists(self):
+        from rdf_utils.collection import add_list_re, value_to_node
+
+        direct = []
+        direct.append(direct)
+        indirect = []
+        indirect.append((indirect,))
+        for values in (direct, indirect):
+            for writer in (add_list_re, value_to_node):
+                with (
+                    self.subTest(writer=writer.__name__),
+                    self.assertRaisesRegex(ValueError, "Cycle"),
+                ):
+                    writer(Graph(), values)
+
+        shared = [1, []]
+        graph = Graph()
+        collection = add_list_re(graph, [shared, shared])
+        self.assertEqual(
+            load_list_re(graph, collection.uri, parse_uri=False),
+            [shared, shared],
+        )
+
     def test_unsupported_values(self):
         from rdf_utils.collection import add_list_re
 
