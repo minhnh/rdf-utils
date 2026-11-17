@@ -6,9 +6,9 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Collection, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from importlib import resources, util
 from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path, PurePath
@@ -755,6 +755,27 @@ def load_py_pkg_prov(
     return info
 
 
+def create_pkg_bundle(dataset: Dataset, name: str) -> tuple[URIRef, PackageInfo]:
+    """Create a bundle for a Python package in a dataset, stating the package as its agent.
+
+    The package, named by its purl, is the agent, though PROV-DM 2.2.1.1 defines a software agent
+    as running software. Use `create_bundle` when the agent is described some other way, e.g. as
+    a ROS package.
+
+    Parameters:
+        dataset: the dataset to add the bundle to
+        name: Python import name, e.g. `scene_dsl`, not `scene-dsl`
+
+    Returns:
+        The ID of the bundle and the package; pass its purl to `record_model_to_graph` and
+        the package to `record_graph_to_text`
+    """
+    info = get_py_pkg_info(name)
+    bundle_id = create_bundle(dataset, info.purl)
+    load_pkg_prov(dataset.graph(bundle_id), info)
+    return bundle_id, info
+
+
 def load_ros_pkg_prov(
     graph: Graph,
     name: str,
@@ -836,6 +857,48 @@ def load_transformation_prov(
                 graph.add((target, PROV.wasDerivedFrom, source))
 
     return activity_id
+
+
+def record_graph_to_text(
+    dataset: Dataset,
+    graph_id: URIRef,
+    bundle_id: URIRef,
+    info: PackageInfo,
+    render_text: Callable[[Graph], str],
+    output_file: str | Path,
+    source_files: Iterable[str | Path] = (),
+) -> None:
+    """Write the text of a graph in a dataset to a file and add how it was made to a bundle.
+
+    Parameters:
+        dataset: the dataset holding the graph and the bundle
+        graph_id: the graph to write, e.g. from `record_model_to_graph`
+        bundle_id: the `prov:Bundle` in the dataset to record in
+        info: the package that writes the text, from `create_pkg_bundle`
+        render_text: renders the text of the graph, e.g. from a template
+        output_file: the file to write the text to
+        source_files: the files `render_text` reads besides the graph, e.g. its template; one
+            in the package is located under its purl, any other by `capture_file_prov`
+
+    Raises:
+        FileNotFoundError: when a source file is missing; nothing is written
+    """
+    bundle = dataset.graph(bundle_id)
+    output_file = Path(output_file).resolve()
+    roots = {} if info.directory is None else {info.directory: info.purl}
+    started = datetime.now(UTC)
+    sources = {capture_file_prov(bundle, path, roots=roots) for path in source_files}
+    output_file.write_text(render_text(dataset.graph(graph_id)))
+
+    add_entity(bundle, graph_id)
+    output_id = add_file_entity(
+        bundle, add_directory_location(bundle, output_file.parent), output_file.name
+    )
+    add_file_hash(bundle, output_id)
+    sources.add(graph_id)
+    load_transformation_prov(
+        bundle, sources, [output_id], info.purl, started=started, ended=datetime.now(UTC)
+    )
 
 
 def load_sampling_prov(

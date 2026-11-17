@@ -2,19 +2,21 @@
 """Common textX model mixins and file discovery, without a textX dependency."""
 
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from importlib import resources, util
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from rdflib import Graph, Namespace, URIRef
+from rdflib import Dataset, Graph, Namespace, URIRef
 
 from rdf_utils.models.prov import (
     capture_file_prov,
     get_py_pkg_info,
     load_pkg_prov,
+    load_transformation_prov,
 )
 
 
@@ -158,6 +160,38 @@ def add_model_prov(
         add_import_prov(graph, path, import_uri, roots=roots, allow_missing=allow_missing)
         for path, import_uri, _ in iter_model_paths(model)
     }
+
+
+def record_model_to_graph(
+    model: Any,
+    dataset: Dataset,
+    bundle_id: URIRef,
+    pkg_id: URIRef,
+    create_graph: Callable[[Any, Graph], Graph],
+    graph_id: URIRef | None = None,
+) -> URIRef:
+    """Generate the graph of a textX model in a dataset and add how it was made to a bundle.
+
+    Parameters:
+        model: the textX model, loaded from a file; that file and its imports are the sources
+        dataset: the dataset holding the graph and the bundle
+        bundle_id: the `prov:Bundle` in the dataset to record in
+        pkg_id: the purl of the language's package, from `create_pkg_bundle`
+        create_graph: the language's graph builder, called with the model and the graph to fill
+        graph_id: the graph to generate into; a new `urn:uuid:` when None
+
+    Returns:
+        The IRI of the graph
+    """
+    graph_id = URIRef(uuid4().urn) if graph_id is None else graph_id
+    bundle = dataset.graph(bundle_id)
+    started = datetime.now(UTC)
+    create_graph(model, dataset.graph(graph_id))
+    sources = add_model_prov(bundle, model)
+    load_transformation_prov(
+        bundle, sources, [graph_id], pkg_id, started=started, ended=datetime.now(UTC)
+    )
+    return graph_id
 
 
 class IHasParent:
