@@ -4,6 +4,7 @@
 from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from importlib import resources, util
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from rdf_utils.models.prov import (
     capture_file_prov,
     get_py_pkg_info,
     load_pkg_prov,
-    transformation_prov,
+    load_transformation_prov,
 )
 
 
@@ -184,10 +185,12 @@ def gen_model_graph(
     """
     graph_id = URIRef(uuid4().urn) if graph_id is None else graph_id
     bundle = dataset.graph(bundle_id)
-    with transformation_prov(bundle, pkg_id) as (sources, targets):
-        create_graph(model, dataset.graph(graph_id))
-        sources.update(add_model_prov(bundle, model))
-        targets.add(graph_id)
+    started = datetime.now(UTC)
+    create_graph(model, dataset.graph(graph_id))
+    sources = add_model_prov(bundle, model)
+    load_transformation_prov(
+        bundle, sources, [graph_id], pkg_id, started=started, ended=datetime.now(UTC)
+    )
     return graph_id
 
 

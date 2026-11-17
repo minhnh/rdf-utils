@@ -6,8 +6,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Callable, Collection, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources, util
@@ -860,38 +859,6 @@ def load_transformation_prov(
     return activity_id
 
 
-@contextmanager
-def transformation_prov(
-    graph: Graph, pkg_id: URIRef, *, influenced: Collection[URIRef] = ()
-) -> Generator[tuple[set[URIRef], set[URIRef]], None, None]:
-    """Record the block as a transformation with `load_transformation_prov` when it exits.
-
-    The block adds the entities it used and generated to the yielded sets. It runs from entering
-    to leaving the block, so recording its files' hashes inside it counts toward that time. A
-    block that raises records nothing.
-
-    Parameters:
-        graph: RDF graph receiving provenance
-        pkg_id: URI of the software package that ran the transformation
-        influenced: Collection of additional target entity URIs influenced by the activity
-
-    Yields:
-        The sets of source and target entity URIs, for the block to fill
-    """
-    sources, targets = set(), set()
-    started = datetime.now(UTC)
-    yield sources, targets
-    load_transformation_prov(
-        graph,
-        sources,
-        targets,
-        pkg_id,
-        started=started,
-        ended=datetime.now(UTC),
-        influenced=influenced,
-    )
-
-
 def gen_graph_text(
     dataset: Dataset,
     graph_id: URIRef,
@@ -919,17 +886,19 @@ def gen_graph_text(
     bundle = dataset.graph(bundle_id)
     output_file = Path(output_file).resolve()
     roots = {} if info.directory is None else {info.directory: info.purl}
-    with transformation_prov(bundle, info.purl) as (sources, targets):
-        sources.update(capture_file_prov(bundle, path, roots=roots) for path in source_files)
-        output_file.write_text(render_text(dataset.graph(graph_id)))
+    started = datetime.now(UTC)
+    sources = {capture_file_prov(bundle, path, roots=roots) for path in source_files}
+    output_file.write_text(render_text(dataset.graph(graph_id)))
 
-        add_entity(bundle, graph_id)
-        output_id = add_file_entity(
-            bundle, add_directory_location(bundle, output_file.parent), output_file.name
-        )
-        add_file_hash(bundle, output_id)
-        sources.add(graph_id)
-        targets.add(output_id)
+    add_entity(bundle, graph_id)
+    output_id = add_file_entity(
+        bundle, add_directory_location(bundle, output_file.parent), output_file.name
+    )
+    add_file_hash(bundle, output_id)
+    sources.add(graph_id)
+    load_transformation_prov(
+        bundle, sources, [output_id], info.purl, started=started, ended=datetime.now(UTC)
+    )
 
 
 def load_sampling_prov(
