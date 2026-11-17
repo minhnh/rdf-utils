@@ -88,6 +88,28 @@ def load_list_re(
     return _load_list_re(graph, first_node, node_set, parse_uri, quiet)
 
 
+def value_to_node(graph: Graph, value: Any) -> Node:
+    """Represent a value as an RDF term, adding collection triples as needed.
+
+    Parameters:
+        graph: Graph receiving nested list/tuple collections.
+        value: RDF term, supported Python scalar or nested ordered collection.
+
+    Returns:
+        Original RDF term, converted literal or collection head.
+
+    Raises:
+        TypeError: If the value has an unsupported type.
+    """
+    if isinstance(value, (URIRef, BNode, Literal)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return add_list_re(graph, value).uri
+    if isinstance(value, (str, bool, int, float, Decimal, date, datetime, time)):
+        return Literal(value)
+    raise TypeError(f"Unsupported RDF value: {type(value).__name__}")
+
+
 def add_list_re(graph: Graph, values: list[Any] | tuple[Any, ...]) -> Collection:
     """Write nested ordered values as RDF collections.
 
@@ -101,18 +123,12 @@ def add_list_re(graph: Graph, values: list[Any] | tuple[Any, ...]) -> Collection
     Raises:
         TypeError: If a value has an unsupported type.
     """
-    nodes = []
-    for value in values:
-        if isinstance(value, (list, tuple)):
-            node = add_list_re(graph, value).uri
-        elif isinstance(value, (URIRef, BNode, Literal)):
-            node = value
-        elif isinstance(value, (str, bool, int, float, Decimal, date, datetime, time)):
-            node = Literal(value)
-        else:
-            raise TypeError(f"Unsupported list value: {type(value).__name__}")
-        nodes.append(node)
-    return Collection(graph, BNode() if nodes else RDF.nil, nodes)
+    nodes = [value_to_node(graph, value) for value in values]
+
+    if nodes:
+        return Collection(graph, BNode(), nodes)
+
+    return Collection(graph, RDF.nil)
 
 
 def add_node_list_pred(

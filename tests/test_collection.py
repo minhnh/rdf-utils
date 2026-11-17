@@ -121,3 +121,24 @@ class RecursiveCollectionTest(unittest.TestCase):
         for value in (None, {}, {1}, object()):
             with self.subTest(value=value), self.assertRaises(TypeError):
                 add_list_re(Graph(), [value])
+
+
+class ValueToNodeTest(unittest.TestCase):
+    def test_terms_and_scalars(self):
+        from datetime import date
+        from decimal import Decimal
+
+        from rdflib import Literal
+
+        from rdf_utils.collection import value_to_node
+
+        graph = Graph()
+        for node in (URIRef("urn:test"), BNode(), Literal("label", lang="en")):
+            self.assertIs(value_to_node(graph, node), node)
+        for value in ("label", True, 3, 1.5, Decimal("1.2"), date(2026, 1, 1)):
+            self.assertEqual(value_to_node(graph, value), Literal(value))
+        self.assertEqual(len(graph), 0)
+        self.assertEqual(value_to_node(graph, []), RDF.nil)
+        for value in (None, {}, {1}, object()):
+            with self.subTest(value=value), self.assertRaises(TypeError):
+                value_to_node(graph, value)
