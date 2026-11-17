@@ -88,3 +88,80 @@ class CollectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecursiveCollectionTest(unittest.TestCase):
+    def test_round_trip(self):
+        from rdflib import Literal
+
+        from rdf_utils.collection import add_list_re
+
+        graph = Graph()
+        resource = BNode()
+        values = [URIRef("urn:a"), resource, "label", 3, True, [], [1, 1], (2, [])]
+        collection = add_list_re(graph, values)
+        self.assertEqual(
+            load_list_re(graph, collection.uri, parse_uri=False),
+            values[:-1] + [[2, []]],
+        )
+        self.assertEqual(add_list_re(graph, []).uri, RDF.nil)
+        self.assertEqual(list(add_list_re(graph, [Literal(3)])), [Literal(3)])
+
+    def test_shared_list_is_not_a_cycle(self):
+        from rdf_utils.collection import add_list_re
+
+        graph = Graph()
+        child = add_list_re(graph, [1])
+        parent = add_list_re(graph, [child.uri, child.uri])
+        self.assertEqual(load_list_re(graph, parent.uri), [[1], [1]])
+
+    def test_python_cycles_and_shared_sublists(self):
+        from rdf_utils.collection import add_list_re, value_to_node
+
+        direct = []
+        direct.append(direct)
+        indirect = []
+        indirect.append((indirect,))
+        for values in (direct, indirect):
+            for writer in (add_list_re, value_to_node):
+                with (
+                    self.subTest(writer=writer.__name__),
+                    self.assertRaisesRegex(ValueError, "Cycle"),
+                ):
+                    writer(Graph(), values)
+
+        shared = [1, []]
+        graph = Graph()
+        collection = add_list_re(graph, [shared, shared])
+        self.assertEqual(
+            load_list_re(graph, collection.uri, parse_uri=False),
+            [shared, shared],
+        )
+
+    def test_unsupported_values(self):
+        from rdf_utils.collection import add_list_re
+
+        for value in (None, {}, {1}, object()):
+            with self.subTest(value=value), self.assertRaises(TypeError):
+                add_list_re(Graph(), [value])
+
+
+class ValueToNodeTest(unittest.TestCase):
+    def test_terms_and_scalars(self):
+        from datetime import date
+        from decimal import Decimal
+
+        from rdflib import Literal
+
+        from rdf_utils.collection import value_to_node
+
+        graph = Graph()
+        for node in (URIRef("urn:test"), BNode(), Literal("label", lang="en")):
+            self.assertIs(value_to_node(graph, node), node)
+        for value in ("label", True, 3, 1.5, Decimal("1.2"), date(2026, 1, 1)):
+            self.assertEqual(value_to_node(graph, value), Literal(value))
+        self.assertEqual(len(graph), 0)
+        self.assertEqual(value_to_node(graph, []), RDF.nil)
+        for value in (None, {}, {1}, object()):
+            with self.subTest(value=value), self.assertRaises(TypeError):
+                value_to_node(graph, value)
