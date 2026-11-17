@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cache
 from importlib import resources, util
 from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path, PurePath
@@ -579,9 +580,11 @@ class PackageInfo:
     directory: Path | None = None
 
 
+@cache
 def get_py_pkg_info(name: str) -> PackageInfo:
     """Read distribution metadata and source identity for a Python import package.
 
+    Results are cached per process at first lookup; cache_clear() refreshes the snapshot.
     Names without Python distribution metadata receive a generic package identity; metadata
     from other package managers is not queried.
 
@@ -903,29 +906,41 @@ def record_graph_to_text(
 
 def load_sampling_prov(
     graph: Graph,
-    activity_id: URIRef,
+    activity_id: URIRef | None,
     used: Iterable[URIRef],
     generated: Iterable[URIRef],
     quantity_id: URIRef,
     agent_id: URIRef,
-    started: URIRef,
-    ended: URIRef | None = None,
-) -> None:
+    started: URIRef | datetime,
+    ended: URIRef | datetime | None = None,
+) -> URIRef:
     """Add a `prov-ext:Generalization` that sampled a quantity into generated entities.
 
     Parameters:
         graph: RDF graph to add the sampling to
-        activity_id: URI of the sampling
+        activity_id: Sampling URI, or None to create a fresh UUID URI
         used: URIs of the entities used besides the quantity, e.g. the model
         generated: URIs of the sampled entities; typed as `prov:Entity` here
-        quantity_id: URI of the sampled quantity
+        quantity_id: URI of the sampled quantity; typed as prov:Entity here
         agent_id: URI of the agent that ran the sampling
-        started: URI of the start instant
-        ended: URI of the end instant, None while still running
+        started: Start instant URI or timezone-aware datetime
+        ended: End instant URI or timezone-aware datetime; None while still running
+    Returns:
+        Sampling activity URI. Generated entities specialize the sampled quantity.
     """
+    if activity_id is None:
+        activity_id = URIRef(uuid4().urn)
+    if isinstance(started, datetime):
+        start_id = graph.value(activity_id, TIME.hasBeginning)
+        started = add_wall_instant(graph, started, instant_id=start_id)
+    if isinstance(ended, datetime):
+        end_id = graph.value(activity_id, TIME.hasEnd)
+        ended = add_wall_instant(graph, ended, instant_id=end_id)
+    add_entity(graph, quantity_id)
     for entity_id in generated:
         add_entity(graph, entity_id)
         graph.add((entity_id, PROV.wasGeneratedBy, activity_id))
+        graph.add((entity_id, PROV.specializationOf, quantity_id))
     add_activity(
         graph,
         activity_id,
@@ -935,6 +950,8 @@ def load_sampling_prov(
         started,
         ended,
     )
+
+    return activity_id
 
 
 def load_execution_prov(

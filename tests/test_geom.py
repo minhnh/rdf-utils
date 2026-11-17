@@ -357,12 +357,10 @@ class GeometryTest(unittest.TestCase):
             assert set(graph) == before
 
             with self.assertRaises(ConstraintViolation):
-                get_or_sample_orientation_coord(
-                    sampled_model, graph, rng=rng, materialize_sample=True
-                )
+                get_or_sample_orientation_coord(sampled_model, graph, rng=rng, sample_graph=graph)
             graph.add((sampled_coord, RDF.type, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ))
             sampled_model.types.add(URI_GEOM_TYPE_DIRECTION_COSINE_XYZ)
-            get_or_sample_orientation_coord(sampled_model, graph, rng=rng, materialize_sample=True)
+            get_or_sample_orientation_coord(sampled_model, graph, rng=rng, sample_graph=graph)
             assert (sampled_coord, RDF.type, URI_GEOM_TYPE_DIRECTION_COSINE_XYZ) in graph
             assert all(
                 isinstance(graph.value(sampled_coord, predicate), BNode) for predicate in predicates
@@ -389,7 +387,7 @@ class GeometryTest(unittest.TestCase):
             assert get_euler_angles_abg(euler_model, graph) is None
             assert get_orientation_coord_vals(euler_model, graph) is None
             sample.return_value = Rotation.from_euler("XYZ", (10.0, 20.0, 30.0), degrees=True)
-            get_or_sample_orientation_coord(euler_model, graph, rng=rng, materialize_sample=True)
+            get_or_sample_orientation_coord(euler_model, graph, rng=rng, sample_graph=graph)
             assert all(
                 graph.value(euler_coord, predicate) is not None
                 for predicate in (
@@ -734,9 +732,7 @@ class GeometryTest(unittest.TestCase):
                 sampled + explicit for sampled, explicit in zip(sample, translations[1])
             )
             assert (
-                get_translation_between_points(
-                    first, last, graph, rng=rng, materialize_samples=True
-                )
+                get_translation_between_points(first, last, graph, rng=rng, sample_graph=graph)
                 == expected
             )
         assert get_coord_vectorxyz(PositionCoordModel(first_coordinate, graph), graph) == tuple(
@@ -766,3 +762,130 @@ class GeometryTest(unittest.TestCase):
         graph.add((relation, URI_GEOM_PRED_WRT, last))
         with self.assertRaises(ConstraintViolation):
             find_pose_path(first, last, graph)
+
+
+class SamplingEvidenceTest(unittest.TestCase):
+    def test_xyz_cache_and_optional_provenance(self):
+        from types import SimpleNamespace
+
+        from rdflib.namespace import PROV
+
+        from rdf_utils.models.prov import get_py_pkg_info
+        from rdf_utils.models.vocab import (
+            URI_GEOM_TYPE_VECTOR_XYZ,
+            URI_PROV_EXT_TYPE_GENERALIZATION,
+        )
+
+        model = SimpleNamespace(
+            id=URIRef("urn:sample"),
+            types={URI_DISTRIB_TYPE_SAMPLED_QUANTITY, URI_GEOM_TYPE_VECTOR_XYZ},
+        )
+        for record_prov in (False, True):
+            with self.subTest(record_prov=record_prov):
+                graph, samples = Graph(), Graph()
+                with (
+                    patch(
+                        "rdf_utils.models.geom_coord.distrib_from_sampled_quantity"
+                    ) as distribution,
+                    patch(
+                        "rdf_utils.models.geom_coord.sample_from_distrib",
+                        return_value=np.array([1.0, 2.0, 3.0]),
+                    ) as draw,
+                ):
+                    distribution.return_value.get_attr.return_value = 3
+                    result = get_or_sample_coord_vectorxyz(
+                        model,
+                        graph,
+                        rng=np.random.default_rng(42),
+                        sample_graph=samples,
+                        record_prov=record_prov,
+                    )
+                    before = set(samples)
+                    self.assertEqual(
+                        get_or_sample_coord_vectorxyz(
+                            model, graph, sample_graph=samples, record_prov=record_prov
+                        ),
+                        result,
+                    )
+                    draw.assert_called_once()
+                self.assertEqual(set(samples), before)
+                self.assertEqual(len(graph), 0)
+                self.assertEqual(get_coord_vectorxyz(model, samples), result)
+                activities = list(samples.subjects(RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION))
+                if record_prov:
+                    (activity,) = activities
+                    self.assertIn(
+                        (activity, PROV.wasAssociatedWith, get_py_pkg_info("rdf_utils").purl),
+                        samples,
+                    )
+                else:
+                    self.assertFalse(activities)
+
+    def test_separate_orientation_cache_uses_source_metadata(self):
+        from types import SimpleNamespace
+
+        from rdf_utils.models.vocab import URI_GEOM_TYPE_QUATERNION, URI_QUDT_PRED_UNIT
+
+        expected = Rotation.from_euler("xyz", [0.1, 0.2, 0.3])
+        for representation in (
+            URI_GEOM_TYPE_QUATERNION,
+            URI_GEOM_TYPE_EULER_ANGLES,
+            URI_GEOM_TYPE_DIRECTION_COSINE_XYZ,
+        ):
+            with self.subTest(representation=representation):
+                graph, samples = Graph(), Graph()
+                model = SimpleNamespace(
+                    id=URIRef("urn:rotation"),
+                    types={
+                        URI_DISTRIB_TYPE_SAMPLED_QUANTITY,
+                        representation,
+                        URI_GEOM_TYPE_INTRINSIC,
+                        URI_GEOM_TYPE_ANGLES_ABG,
+                    },
+                )
+                graph.add((model.id, URI_GEOM_PRED_AXES_SEQ, Literal("xyz")))
+                graph.add((model.id, URI_QUDT_PRED_UNIT, URI_QUDT_UNIT_RAD))
+                before = set(graph)
+                with (
+                    patch(
+                        "rdf_utils.models.geom_coord.distrib_from_sampled_quantity"
+                    ) as distribution,
+                    patch(
+                        "rdf_utils.models.geom_coord.sample_from_distrib", return_value=expected
+                    ) as draw,
+                ):
+                    distribution.return_value.types = {URI_DISTRIB_TYPE_UNIFORM_ROT}
+                    get_or_sample_orientation_coord(
+                        model, graph, rng=np.random.default_rng(42), sample_graph=samples
+                    )
+                    cached = get_or_sample_orientation_coord(model, graph, sample_graph=samples)
+                    self.assertTrue(np.allclose(cached.as_matrix(), expected.as_matrix()))
+                    draw.assert_called_once()
+                self.assertEqual(set(graph), before)
+                self.assertFalse(list(samples.triples((None, RDF.type, None))))
+
+    def test_sampling_provenance_errors_propagate(self):
+        from types import SimpleNamespace
+
+        from rdf_utils.models.vocab import URI_GEOM_TYPE_VECTOR_XYZ
+
+        model = SimpleNamespace(
+            id=URIRef("urn:sample"),
+            types={URI_DISTRIB_TYPE_SAMPLED_QUANTITY, URI_GEOM_TYPE_VECTOR_XYZ},
+        )
+        with self.assertRaises(ValueError):
+            get_or_sample_coord_vectorxyz(model, Graph(), record_prov=True)
+        with (
+            patch("rdf_utils.models.geom_coord.distrib_from_sampled_quantity") as distribution,
+            patch("rdf_utils.models.geom_coord.sample_from_distrib", return_value=np.ones(3)),
+            patch("rdf_utils.models.geom_coord.load_py_pkg_prov", side_effect=OSError("failure")),
+        ):
+            distribution.return_value.get_attr.return_value = 3
+            with self.assertRaises(OSError):
+                get_or_sample_coord_vectorxyz(
+                    model,
+                    Graph(),
+                    rng=np.random.default_rng(42),
+                    sample_graph=Graph(),
+                    record_prov=True,
+                )

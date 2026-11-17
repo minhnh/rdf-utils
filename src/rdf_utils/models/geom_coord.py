@@ -8,11 +8,14 @@ Coordinate models and values using concepts from
 from __future__ import annotations
 
 from collections.abc import Generator, Iterable
+from datetime import UTC, datetime
 from inspect import isclass
 from typing import Any, Protocol
+from uuid import uuid4
 
 import numpy as np
 from rdflib import BNode, Graph, Literal, URIRef
+from rdflib.graph import ReadOnlyGraphAggregate
 from scipy.spatial.transform import RigidTransform, Rotation
 
 from rdf_utils.collection import add_literal_list_pred, load_list_re
@@ -29,6 +32,7 @@ from rdf_utils.models.geom_rel import (
     find_pose_path,
     find_position_path,
 )
+from rdf_utils.models.prov import load_py_pkg_prov, load_sampling_prov
 from rdf_utils.models.python import (
     URI_PY_TYPE_MODULE_ATTR,
     import_attr_from_model,
@@ -489,15 +493,16 @@ def get_translation_between_points(
     wrt_point: URIRef,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_samples: bool = False,
     *,
     coord_policy: CoordPolicyProtocol | None = None,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> tuple[float, float, float] | None:
     """Get the XYZ translation between two points.
 
     Each Position along the path must have one VectorXYZ PositionCoordinate, unless a
     ``coord_policy`` is given to pick among several, and all coordinates must share one QUDT unit.
-    Without ``rng``, every coordinate must have explicit XYZ values. With ``rng``, missing XYZ
+    Without ``rng``, every coordinate must have explicit or cached XYZ values. With ``rng``, missing XYZ
     values may be sampled from a SampledQuantity distribution.
 
     Parameters:
@@ -505,8 +510,8 @@ def get_translation_between_points(
         wrt_point: point at the end of the path
         graph: RDF graph containing the Position relations and coordinates
         rng: optional random generator that enables sampled coordinates
-        materialize_samples: whether to write newly sampled XYZ values to the
-                             graph; ignored when no sampling occurs
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
         coord_policy: picks one PositionCoordinate when a Position has several
 
     Returns:
@@ -536,19 +541,13 @@ def get_translation_between_points(
                 "geometry",
                 "PositionCoordinates in a path must share one unit",
             )
-        if rng is None:
-            values = get_coord_vectorxyz(coordinate, graph)
-            if values is None:
-                raise ConstraintViolation(
-                    "geometry", f"Coordinate {coordinate.id} has no XYZ values"
-                )
-        else:
-            values = get_or_sample_coord_vectorxyz(
-                coordinate,
-                graph,
-                rng=rng,
-                materialize_sample=materialize_samples,
-            )
+        values = get_or_sample_coord_vectorxyz(
+            coordinate,
+            graph,
+            rng=rng,
+            sample_graph=sample_graph,
+            record_prov=record_prov,
+        )
 
         values = to_metres(values, coordinate.unit, coordinate.id)
         translation = [total + value for total, value in zip(translation, values)]
@@ -590,14 +589,15 @@ def get_rotation_between_frames(
     wrt_frame: URIRef,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_samples: bool = False,
     *,
     coord_policy: CoordPolicyProtocol | None = None,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> Rotation | None:
     """Get the rotation between two frames.
 
     Each Orientation along the path must have one OrientationCoordinate, unless a
-    ``coord_policy`` is given to pick among several. Without ``rng``, only explicit values are
+    ``coord_policy`` is given to pick among several. Without ``rng``, only explicit or cached values are
     read. With ``rng``, missing values may be sampled from a UniformRotation distribution.
 
     Parameters:
@@ -605,7 +605,8 @@ def get_rotation_between_frames(
         wrt_frame: frame at the end of the path
         graph: RDF graph containing the Orientation relations and coordinates
         rng: optional random generator that enables sampled coordinates
-        materialize_samples: whether to write newly sampled values to the graph
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
         coord_policy: picks one OrientationCoordinate when an Orientation has several
 
     Returns:
@@ -627,19 +628,13 @@ def get_rotation_between_frames(
             )
 
         coordinate = orient_coords[0]
-        if rng is None:
-            rotation = get_orientation_coord_vals(coordinate, graph)
-            if rotation is None:
-                raise ConstraintViolation(
-                    "geometry", f"Coordinate {coordinate.id} has no orientation values"
-                )
-        else:
-            rotation = get_or_sample_orientation_coord(
-                coordinate,
-                graph,
-                rng=rng,
-                materialize_sample=materialize_samples,
-            )
+        rotation = get_or_sample_orientation_coord(
+            coordinate,
+            graph,
+            rng=rng,
+            sample_graph=sample_graph,
+            record_prov=record_prov,
+        )
         result = rotation * result
 
     return result
@@ -680,9 +675,10 @@ def get_transform_between_frames(
     wrt_frame: URIRef,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_samples: bool = False,
     *,
     coord_policy: CoordPolicyProtocol | None = None,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> RigidTransform | None:
     """Get the rigid transform between two frames.
 
@@ -697,7 +693,8 @@ def get_transform_between_frames(
         wrt_frame: frame at the end of the path
         graph: RDF graph containing Pose relations and coordinates
         rng: optional random generator that enables sampled coordinates
-        materialize_samples: whether to write newly sampled values to the graph
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
         coord_policy: picks one PoseCoordinate, and its component coordinates, when several exist
 
     Returns:
@@ -729,7 +726,8 @@ def get_transform_between_frames(
                 pose_coord,
                 graph,
                 rng=rng,
-                materialize_sample=materialize_samples,
+                sample_graph=sample_graph,
+                record_prov=record_prov,
             )
             * result
         )
@@ -741,11 +739,13 @@ def get_pose_coord_vals(
     coord_model: PoseCoordModel,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_sample: bool = False,
+    *,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> RigidTransform:
     """Get the rigid transform represented by a PoseCoordinate.
 
-    Without ``rng``, the coordinate must have explicit position and orientation
+    Without ``rng``, the coordinate must have explicit or cached position and orientation
     values. With ``rng``, missing values may be sampled from SampledQuantity
     distributions.
 
@@ -753,36 +753,26 @@ def get_pose_coord_vals(
         coord_model: PoseCoordinate model containing position and orientation coordinates
         graph: RDF graph containing the coordinate values
         rng: optional random generator that enables sampled coordinates
-        materialize_sample: whether to write newly sampled values to the graph
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
 
     Returns:
         rigid transform containing the Pose translation, in metres, and rotation
     """
-    if rng is None:
-        translation = get_coord_vectorxyz(coord_model.position_coord, graph)
-        if translation is None:
-            raise ConstraintViolation(
-                "geometry", f"Coordinate {coord_model.position_coord.id} has no XYZ values"
-            )
-        rotation = get_orientation_coord_vals(coord_model.orientation_coord, graph)
-        if rotation is None:
-            raise ConstraintViolation(
-                "geometry",
-                f"Coordinate {coord_model.orientation_coord.id} has no orientation values",
-            )
-    else:
-        translation = get_or_sample_coord_vectorxyz(
-            coord_model.position_coord,
-            graph,
-            rng=rng,
-            materialize_sample=materialize_sample,
-        )
-        rotation = get_or_sample_orientation_coord(
-            coord_model.orientation_coord,
-            graph,
-            rng=rng,
-            materialize_sample=materialize_sample,
-        )
+    translation = get_or_sample_coord_vectorxyz(
+        coord_model.position_coord,
+        graph,
+        rng=rng,
+        sample_graph=sample_graph,
+        record_prov=record_prov,
+    )
+    rotation = get_or_sample_orientation_coord(
+        coord_model.orientation_coord,
+        graph,
+        rng=rng,
+        sample_graph=sample_graph,
+        record_prov=record_prov,
+    )
 
     return RigidTransform.from_components(
         to_metres(translation, coord_model.position_coord.unit, coord_model.position_coord.id),
@@ -854,7 +844,9 @@ def get_or_sample_coord_vectorxyz(
     coord_model: ModelBase,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_sample: bool = False,
+    *,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> tuple[float, float, float]:
     """Get or sample coordinates for a VectorXYZ model.
 
@@ -865,12 +857,18 @@ def get_or_sample_coord_vectorxyz(
         coord_model: coordinate model object
         graph: RDF graph containing the coordinate or distribution
         rng: random generator required for a sampled coordinate
-        materialize_sample: whether to write newly sampled values to the graph
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
 
     Returns:
         tuple containing (x, y, z) coordinates
     """
+    if record_prov and sample_graph is None:
+        raise ValueError("record_prov requires sample_graph")
+
     values = get_coord_vectorxyz(coord_model, graph)
+    if values is None and sample_graph is not None:
+        values = get_coord_vectorxyz(coord_model, ReadOnlyGraphAggregate([graph, sample_graph]))
     if values is not None:
         return values
 
@@ -890,6 +888,7 @@ def get_or_sample_coord_vectorxyz(
             f"Coordinate {coord_model.id} distribution must have dimension 3, found {dimension}",
         )
 
+    started = datetime.now(UTC) if record_prov else None
     sample = np.asarray(sample_from_distrib(distribution, rng=rng), dtype=float)
     if sample.shape != (3,):
         raise ConstraintViolation(
@@ -898,8 +897,20 @@ def get_or_sample_coord_vectorxyz(
         )
 
     values = (float(sample[0]), float(sample[1]), float(sample[2]))
-    if materialize_sample:
-        set_coord_vectorxyz(coord_model, values, graph)
+    if sample_graph is not None:
+        set_coord_vectorxyz(coord_model, values, sample_graph)
+
+    if record_prov:
+        load_sampling_prov(
+            sample_graph,
+            None,
+            [],
+            [URIRef(uuid4().urn)],
+            coord_model.id,
+            load_py_pkg_prov(sample_graph, "rdf_utils").purl,
+            started,
+            datetime.now(UTC),
+        )
 
     return values
 
@@ -1189,7 +1200,11 @@ def get_orientation_coord_vals(coord_model: IFrameRelationCoord, graph: Graph) -
 
 
 def set_orientation_coord(
-    coord_model: IFrameRelationCoord, rotation: Rotation, graph: Graph
+    coord_model: IFrameRelationCoord,
+    rotation: Rotation,
+    graph: Graph,
+    *,
+    model_graph: Graph | None = None,
 ) -> None:
     """Write a rotation using the coordinate's declared representation.
 
@@ -1203,13 +1218,15 @@ def set_orientation_coord(
         coord_model: pose or orientation coordinate model
         rotation: SciPy Rotation to write
         graph: RDF graph to update
+        model_graph: Optional source of representation metadata.
     """
+    source = graph if model_graph is None else model_graph
     representation = _orientation_representation(coord_model)
     if representation == URI_GEOM_TYPE_EULER_ANGLES:
-        seq, is_intrinsic = get_euler_angles_params(coord_model, graph)
+        seq, is_intrinsic = get_euler_angles_params(coord_model, source)
         units = [
             unit
-            for unit in graph.objects(coord_model.id, URI_QUDT_PRED_UNIT)
+            for unit in source.objects(coord_model.id, URI_QUDT_PRED_UNIT)
             if unit in (URI_QUDT_UNIT_DEG, URI_QUDT_UNIT_RAD)
         ]
         if len(units) != 1:
@@ -1255,7 +1272,9 @@ def get_or_sample_orientation_coord(
     coord_model: IFrameRelationCoord,
     graph: Graph,
     rng: np.random.Generator | None = None,
-    materialize_sample: bool = False,
+    *,
+    sample_graph: Graph | None = None,
+    record_prov: bool = False,
 ) -> Rotation:
     """Get an explicit orientation or sample a UniformRotation distribution.
 
@@ -1267,12 +1286,20 @@ def get_or_sample_orientation_coord(
         coord_model: pose or orientation coordinate model
         graph: RDF graph containing the coordinate or distribution
         rng: random generator required for a sampled coordinate
-        materialize_sample: whether to write the sampled rotation to the graph
+        record_prov: Record activities for actual draws in sample_graph.
+        sample_graph: Optional destination/cache for sampled values; pass the source graph to materialize there.
 
     Returns:
         explicit or sampled orientation as a SciPy Rotation
     """
+    if record_prov and sample_graph is None:
+        raise ValueError("record_prov requires sample_graph")
+
     rotation = get_orientation_coord_vals(coord_model, graph)
+    if rotation is None and sample_graph is not None:
+        rotation = get_orientation_coord_vals(
+            coord_model, ReadOnlyGraphAggregate([graph, sample_graph])
+        )
     if rotation is not None:
         return rotation
 
@@ -1293,13 +1320,26 @@ def get_or_sample_orientation_coord(
             "geometry", f"Coordinate {coord_model.id} requires a UniformRotation distribution"
         )
 
+    started = datetime.now(UTC) if record_prov else None
     rotation = sample_from_distrib(distribution, rng=rng)
     if not isinstance(rotation, Rotation):
         raise ConstraintViolation(
             "geometry", f"Coordinate {coord_model.id} distribution did not return a Rotation"
         )
 
-    if materialize_sample:
-        set_orientation_coord(coord_model, rotation, graph)
+    if sample_graph is not None:
+        set_orientation_coord(coord_model, rotation, sample_graph, model_graph=graph)
+
+    if record_prov:
+        load_sampling_prov(
+            sample_graph,
+            None,
+            [],
+            [URIRef(uuid4().urn)],
+            coord_model.id,
+            load_py_pkg_prov(sample_graph, "rdf_utils").purl,
+            started,
+            datetime.now(UTC),
+        )
 
     return rotation
