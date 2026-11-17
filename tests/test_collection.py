@@ -88,3 +88,36 @@ class CollectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecursiveCollectionTest(unittest.TestCase):
+    def test_round_trip(self):
+        from rdflib import Literal
+
+        from rdf_utils.collection import add_list_re
+
+        graph = Graph()
+        resource = BNode()
+        values = [URIRef("urn:a"), resource, "label", 3, True, [], [1, 1], (2, [])]
+        collection = add_list_re(graph, values)
+        self.assertEqual(
+            load_list_re(graph, collection.uri, parse_uri=False),
+            values[:-1] + [[2, []]],
+        )
+        self.assertEqual(add_list_re(graph, []).uri, RDF.nil)
+        self.assertEqual(list(add_list_re(graph, [Literal(3)])), [Literal(3)])
+
+    def test_shared_list_is_not_a_cycle(self):
+        from rdf_utils.collection import add_list_re
+
+        graph = Graph()
+        child = add_list_re(graph, [1])
+        parent = add_list_re(graph, [child.uri, child.uri])
+        self.assertEqual(load_list_re(graph, parent.uri), [[1], [1]])
+
+    def test_unsupported_values(self):
+        from rdf_utils.collection import add_list_re
+
+        for value in (None, {}, {1}, object()):
+            with self.subTest(value=value), self.assertRaises(TypeError):
+                add_list_re(Graph(), [value])
