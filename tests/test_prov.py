@@ -171,6 +171,7 @@ class ProvTest(unittest.TestCase):
                 package.read_text.return_value = json.dumps(
                     {"url": checkout.as_uri(), "dir_info": {"editable": editable}}
                 )
+                get_py_pkg_info.cache_clear()
                 with (
                     patch("rdf_utils.models.prov.distribution", return_value=package),
                     patch(
@@ -217,6 +218,7 @@ class ProvTest(unittest.TestCase):
                 package = Mock(version="1.0+local")
                 package.name = "My_Package"
                 package.read_text.return_value = json.dumps(origin)
+                get_py_pkg_info.cache_clear()
                 with (
                     patch("rdf_utils.models.prov.distribution", return_value=package),
                     patch(
@@ -273,6 +275,7 @@ class ProvTest(unittest.TestCase):
                 package.read_text.return_value = json.dumps(
                     {"url": project.as_uri(), "dir_info": {"editable": True}}
                 )
+                get_py_pkg_info.cache_clear()
                 with (
                     patch("rdf_utils.models.prov.distribution", return_value=package),
                     patch(
@@ -430,13 +433,23 @@ class ProvTest(unittest.TestCase):
             check_shacl_constraints(self.graph, SHACL)
 
     def test_sampling(self):
+        self.graph.remove((QUANTITY, RDF.type, PROV.Entity))
         load_sampling_prov(
             self.graph, SAMPLING, [MODEL], [SAMPLE], QUANTITY, PKG, self.start, self.end
         )
+        self.assertIn((QUANTITY, RDF.type, PROV.Entity), self.graph)
         self.assertIn((SAMPLING, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION), self.graph)
         self.assertIn((SAMPLING, PROV.used, QUANTITY), self.graph)
         self.assertIn((SAMPLING, PROV.used, MODEL), self.graph)
         self.assertIn((SAMPLE, PROV.wasGeneratedBy, SAMPLING), self.graph)
+        self.assertIn((SAMPLE, PROV.specializationOf, QUANTITY), self.graph)
+        activity = load_sampling_prov(self.graph, None, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0)
+        beginning = self.graph.value(activity, TIME.hasBeginning)
+        load_sampling_prov(self.graph, activity, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0, self.t1)
+        end = self.graph.value(activity, TIME.hasEnd)
+        load_sampling_prov(self.graph, activity, [MODEL], [SAMPLE], QUANTITY, PKG, self.t0, self.t1)
+        self.assertEqual(list(self.graph.objects(activity, TIME.hasBeginning)), [beginning])
+        self.assertEqual(list(self.graph.objects(activity, TIME.hasEnd)), [end])
         check_shacl_constraints(self.graph, SHACL)
 
     def test_execution_with_runtime_boundary_instants(self):
@@ -779,3 +792,17 @@ def test_file_capture_states_the_git_revision_only_outside_a_package(tmp_path):
     )
     assert package_graph.value(file_id, SDO.identifier) is None
     assert package_graph.value(file_id, SDO.codeRepository) is None
+
+
+@pytest.fixture(autouse=True)
+def clear_package_cache():
+    get_py_pkg_info.cache_clear()
+    yield
+    get_py_pkg_info.cache_clear()
+
+
+def test_python_package_metadata_snapshot():
+    first = get_py_pkg_info("rdf_utils")
+    assert get_py_pkg_info("rdf_utils") is first
+    get_py_pkg_info.cache_clear()
+    assert get_py_pkg_info("rdf_utils") == first
