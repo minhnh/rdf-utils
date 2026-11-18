@@ -14,8 +14,9 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 import numpy as np
-from rdflib import BNode, Graph, Literal, URIRef
+from rdflib import RDF, BNode, Graph, Literal, URIRef
 from rdflib.graph import ReadOnlyGraphAggregate
+from rdflib.namespace import PROV
 from scipy.spatial.transform import RigidTransform, Rotation
 
 from rdf_utils.collection import add_literal_list_pred, load_list_re
@@ -71,6 +72,7 @@ from rdf_utils.models.vocab import (
     URI_GEOM_TYPE_POSITION_REF,
     URI_GEOM_TYPE_QUATERNION,
     URI_GEOM_TYPE_VECTOR_XYZ,
+    URI_PROV_EXT_TYPE_GENERALIZATION,
     URI_QUDT_PRED_UNIT,
     URI_QUDT_UNIT_CM,
     URI_QUDT_UNIT_DEG,
@@ -862,15 +864,25 @@ def get_or_sample_coord_vectorxyz(
 
     Returns:
         tuple containing (x, y, z) coordinates
+    Raises:
+        ValueError: If a provenance-enabled draw has no destination or replaces recorded sampling.
     """
-    if record_prov and sample_graph is None:
-        raise ValueError("record_prov requires sample_graph")
-
     values = get_coord_vectorxyz(coord_model, graph)
     if values is None and sample_graph is not None:
         values = get_coord_vectorxyz(coord_model, ReadOnlyGraphAggregate([graph, sample_graph]))
     if values is not None:
         return values
+
+    started = None
+    if record_prov:
+        if sample_graph is None:
+            raise ValueError("record_prov requires sample_graph")
+        if any(
+            (activity, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION) in sample_graph
+            for activity in sample_graph.subjects(PROV.used, coord_model.id)
+        ):
+            raise ValueError(f"Coordinate {coord_model.id} already has sampling provenance")
+        started = datetime.now(UTC)
 
     if URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types:
         raise ConstraintViolation("geometry", f"Coordinate {coord_model.id} has no XYZ values")
@@ -888,7 +900,6 @@ def get_or_sample_coord_vectorxyz(
             f"Coordinate {coord_model.id} distribution must have dimension 3, found {dimension}",
         )
 
-    started = datetime.now(UTC) if record_prov else None
     sample = np.asarray(sample_from_distrib(distribution, rng=rng), dtype=float)
     if sample.shape != (3,):
         raise ConstraintViolation(
@@ -901,6 +912,8 @@ def get_or_sample_coord_vectorxyz(
         set_coord_vectorxyz(coord_model, values, sample_graph)
 
     if record_prov:
+        assert sample_graph is not None
+        assert started is not None
         load_sampling_prov(
             sample_graph,
             None,
@@ -1291,10 +1304,9 @@ def get_or_sample_orientation_coord(
 
     Returns:
         explicit or sampled orientation as a SciPy Rotation
+    Raises:
+        ValueError: If a provenance-enabled draw has no destination or replaces recorded sampling.
     """
-    if record_prov and sample_graph is None:
-        raise ValueError("record_prov requires sample_graph")
-
     rotation = get_orientation_coord_vals(coord_model, graph)
     if rotation is None and sample_graph is not None:
         rotation = get_orientation_coord_vals(
@@ -1302,6 +1314,17 @@ def get_or_sample_orientation_coord(
         )
     if rotation is not None:
         return rotation
+
+    started = None
+    if record_prov:
+        if sample_graph is None:
+            raise ValueError("record_prov requires sample_graph")
+        if any(
+            (activity, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION) in sample_graph
+            for activity in sample_graph.subjects(PROV.used, coord_model.id)
+        ):
+            raise ValueError(f"Coordinate {coord_model.id} already has sampling provenance")
+        started = datetime.now(UTC)
 
     if URI_DISTRIB_TYPE_SAMPLED_QUANTITY not in coord_model.types:
         raise ConstraintViolation(
@@ -1320,7 +1343,6 @@ def get_or_sample_orientation_coord(
             "geometry", f"Coordinate {coord_model.id} requires a UniformRotation distribution"
         )
 
-    started = datetime.now(UTC) if record_prov else None
     rotation = sample_from_distrib(distribution, rng=rng)
     if not isinstance(rotation, Rotation):
         raise ConstraintViolation(
@@ -1331,6 +1353,8 @@ def get_or_sample_orientation_coord(
         set_orientation_coord(coord_model, rotation, sample_graph, model_graph=graph)
 
     if record_prov:
+        assert sample_graph is not None
+        assert started is not None
         load_sampling_prov(
             sample_graph,
             None,

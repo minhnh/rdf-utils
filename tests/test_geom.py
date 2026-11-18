@@ -808,9 +808,12 @@ class SamplingEvidenceTest(unittest.TestCase):
                         result,
                     )
                     draw.assert_called_once()
-                self.assertEqual(set(samples), before)
                 self.assertEqual(len(graph), 0)
                 self.assertEqual(get_coord_vectorxyz(model, samples), result)
+                self.assertEqual(
+                    get_or_sample_coord_vectorxyz(model, samples, record_prov=True), result
+                )
+                self.assertEqual(set(samples), before)
                 activities = list(samples.subjects(RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION))
                 if record_prov:
                     (activity,) = activities
@@ -889,3 +892,59 @@ class SamplingEvidenceTest(unittest.TestCase):
                     sample_graph=Graph(),
                     record_prov=True,
                 )
+
+    def test_sampling_provenance_prevents_redraw(self):
+        from types import SimpleNamespace
+
+        from rdflib.namespace import PROV
+
+        from rdf_utils.models.vocab import (
+            URI_GEOM_TYPE_QUATERNION,
+            URI_GEOM_TYPE_VECTOR_XYZ,
+            URI_PROV_EXT_TYPE_GENERALIZATION,
+        )
+
+        for sampler, representation, value in (
+            (get_or_sample_coord_vectorxyz, URI_GEOM_TYPE_VECTOR_XYZ, np.ones(3)),
+            (get_or_sample_orientation_coord, URI_GEOM_TYPE_QUATERNION, Rotation.identity()),
+        ):
+            for record_prov in (False, True):
+                with self.subTest(sampler=sampler.__name__, record_prov=record_prov):
+                    graph, samples = Graph(), Graph()
+                    model = SimpleNamespace(
+                        id=URIRef("urn:coordinate"),
+                        types={URI_DISTRIB_TYPE_SAMPLED_QUANTITY, representation},
+                    )
+                    activity = URIRef("urn:previous-draw")
+                    samples.add((activity, RDF.type, URI_PROV_EXT_TYPE_GENERALIZATION))
+                    samples.add((activity, PROV.used, model.id))
+                    before = set(samples)
+                    with (
+                        patch(
+                            "rdf_utils.models.geom_coord.distrib_from_sampled_quantity"
+                        ) as distribution,
+                        patch(
+                            "rdf_utils.models.geom_coord.sample_from_distrib", return_value=value
+                        ) as draw,
+                    ):
+                        distribution.return_value.get_attr.return_value = 3
+                        distribution.return_value.types = {URI_DISTRIB_TYPE_UNIFORM_ROT}
+                        if record_prov:
+                            with self.assertRaisesRegex(
+                                ValueError, "already has sampling provenance"
+                            ):
+                                sampler(
+                                    model,
+                                    graph,
+                                    rng=np.random.default_rng(42),
+                                    sample_graph=samples,
+                                    record_prov=True,
+                                )
+                            draw.assert_not_called()
+                            self.assertEqual(set(samples), before)
+                        else:
+                            sampler(
+                                model, graph, rng=np.random.default_rng(42), sample_graph=samples
+                            )
+                            draw.assert_called_once()
+                    self.assertEqual(len(graph), 0)
