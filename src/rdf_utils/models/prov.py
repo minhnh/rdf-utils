@@ -33,6 +33,7 @@ from rdf_utils.models.vocab import (
     URI_ROS_TYPE_PACKAGE,
     URI_SPDX_SW_TYPE_PACKAGE,
 )
+from rdf_utils.resolver import IriToFileResolver
 
 
 def add_entity(graph: Graph, entity_id: URIRef | None = None) -> URIRef:
@@ -72,7 +73,7 @@ def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
 def add_file_entity(
     graph: Graph,
     root: URIRef | None,
-    path: str | Path,
+    path: str | Path | URIRef,
     generated_by: URIRef | None = None,
     generated_at: datetime | None = None,
     modified_at: datetime | None = None,
@@ -81,6 +82,7 @@ def add_file_entity(
 ) -> URIRef:
     """Add a file as a `prov:Entity` at PATH, which need not exist.
 
+    An absolute URIRef is preserved as its location without filesystem conversion.
     A relative PATH is located by `add_relative_location` under ROOT, an absolute one at its
     `file:` IRI. A step that read or wrote the file states its hash with `add_file_hash`.
 
@@ -103,13 +105,20 @@ def add_file_entity(
     Raises:
         ValueError: when PATH is relative without ROOT, or absolute with it
     """
-    path = Path(path).expanduser()
-    if root is None:
-        if not path.is_absolute():
-            raise ValueError(f"'{path}' is a relative path -- it needs the root it is relative to")
-        location = URIRef(path.as_uri())
+    if isinstance(path, URIRef):
+        if root is not None or not urlsplit(path).scheme:
+            raise ValueError("An absolute URI requires root=None")
+        location = path
     else:
-        location = add_relative_location(graph, root, path.as_posix())
+        path = Path(path).expanduser()
+        if root is None:
+            if not path.is_absolute():
+                raise ValueError(
+                    f"'{path}' is a relative path -- it needs the root it is relative to"
+                )
+            location = URIRef(path.as_uri())
+        else:
+            location = add_relative_location(graph, root, path.as_posix())
     file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)
     for type_id in additional_types:
@@ -139,7 +148,6 @@ def add_file_hash(graph: Graph, file_id: URIRef) -> None:
     path = get_file_path(graph, file_id)
     if path is None:
         raise ValueError(f"File entity '{file_id}' has no location")
-    # Streamed: a run's log or bag can be larger than memory.
     with path.open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").digest()
     encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
@@ -981,3 +989,41 @@ def load_execution_prov(
         started,
         ended,
     )
+
+
+def capture_url_prov(
+    graph: Graph,
+    iri: URIRef,
+    *,
+    resolver: IriToFileResolver | None,
+    roots: dict[Path, URIRef],
+    captured: dict[Path, URIRef] | None = None,
+) -> URIRef:
+    """Capture an explicit URL without downloading: fresh downloads use URL identity.
+
+    Hashes identify the local copy, linked to the URL with prov:alternateOf. Existing
+    local files also receive Git metadata. Remote-only sources retain URL identity
+    without a hash. The resolver reports the latest open's outcome.
+
+    Parameters:
+        graph: Destination provenance graph.
+        iri: Explicit source URI, preserved for remote sources.
+        resolver: Resolver used to load the source, or None when no local mapping is available.
+        roots: Shared local directory-to-identity mapping for file capture.
+        captured: Optional map of previously captured local files.
+
+    Returns:
+        Captured source entity URI.
+    """
+    remote = add_file_entity(graph, None, iri)
+    local_path, downloaded = resolver.get_source(iri) if resolver is not None else (None, False)
+    if local_path is None:
+        return remote
+    if downloaded:
+        local = add_file_entity(graph, None, local_path)
+        add_file_hash(graph, local)
+    else:
+        local = capture_file_prov(graph, local_path, roots=roots, captured=captured)
+    if local != remote:
+        graph.add((local, PROV.alternateOf, remote))
+    return remote if downloaded else local
