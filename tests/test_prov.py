@@ -26,6 +26,7 @@ from rdf_utils.models.prov import (
     add_file_hash,
     add_relative_location,
     capture_file_prov,
+    capture_url_prov,
     create_bundle,
     get_file_path,
     get_git_info,
@@ -806,3 +807,25 @@ def test_python_package_metadata_snapshot():
     assert get_py_pkg_info("rdf_utils") is first
     get_py_pkg_info.cache_clear()
     assert get_py_pkg_info("rdf_utils") == first
+
+
+@pytest.mark.parametrize("downloaded", [False, True])
+def test_explicit_url_capture_uses_open_outcome(tmp_path, downloaded):
+    path = tmp_path / "source.json"
+    path.write_text("{}")
+    iri = URIRef("https://example.org/source.json")
+    resolver = Mock()
+    resolver.get_source.return_value = (path, downloaded)
+    graph = Graph()
+    with patch(
+        "rdf_utils.models.prov.get_git_info", return_value=("revision", None, None, False)
+    ) as git:
+        source = capture_url_prov(graph, iri, resolver=resolver, roots={})
+        assert git.called is not downloaded
+    remote = graph.value(predicate=PROV.atLocation, object=iri)
+    local = graph.value(predicate=PROV.alternateOf, object=remote)
+    assert source == (remote if downloaded else local)
+    assert graph.value(remote, DCTERMS.identifier) is None
+    assert graph.value(local, SDO.identifier) == (None if downloaded else Literal("revision"))
+    assert get_file_path(graph, local) == path
+    assert graph.value(local, DCTERMS.identifier) is not None
