@@ -59,7 +59,7 @@ from rdf_utils.namespace import (
     URL_MM_TIME_SHACL,
     URL_SECORO_M,
 )
-from rdf_utils.resolver import install_resolver
+from rdf_utils.resolver import IriToFileResolver, install_resolver
 
 URI_TEST = f"{URL_SECORO_M}/tests/prov"
 PKG = URIRef(f"{URI_TEST}/pkg")
@@ -814,8 +814,8 @@ def test_explicit_url_capture_uses_open_outcome(tmp_path, downloaded):
     path = tmp_path / "source.json"
     path.write_text("{}")
     iri = URIRef("https://example.org/source.json")
-    resolver = Mock()
-    resolver.get_source.return_value = (path, downloaded)
+    resolver = IriToFileResolver({"https://example.org/": tmp_path})
+    resolver._opened_sources[str(iri)] = (path, downloaded)
     graph = Graph()
     with patch(
         "rdf_utils.models.prov.get_git_info", return_value=("revision", None, None, False)

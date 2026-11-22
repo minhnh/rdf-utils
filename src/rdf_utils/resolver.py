@@ -48,6 +48,7 @@ class IriToFileResolver(urllib.request.OpenerDirector):
 
         Lookup never downloads a resource or records an open.
         """
+        iri = str(iri)
         if iri in self._opened_sources:
             return self._opened_sources[iri]
         parsed = urlsplit(iri)
