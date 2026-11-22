@@ -80,18 +80,19 @@ def add_file_entity(
     fmt: str | None = None,
     additional_types: Iterable[URIRef] = (),
 ) -> URIRef:
-    """Add a file as a `prov:Entity` at PATH, which need not exist.
+    """Add a file as a `prov:Entity` at ``path``, which need not exist.
 
-    An absolute URIRef is preserved as its location without filesystem conversion.
-    A relative PATH is located by `add_relative_location` under ROOT, an absolute one at its
+    Absolute URIRefs and HTTP(S)/file URL strings retain their location without
+    filesystem conversion, ignoring ``root``.
+    A relative ``path`` is located by `add_relative_location` under ``root``, an absolute one at its
     `file:` IRI. A step that read or wrote the file states its hash with `add_file_hash`.
 
     Parameters:
         graph: RDF graph to add the file to
-        root: the location a relative PATH is relative to -- from `add_directory_location`,
-            `load_pkg_prov`, or the location of the file PATH was written in -- or None for an
-            absolute PATH
-        path: the file, relative to ROOT or absolute (`~` expanded)
+        root: the location a relative ``path`` is relative to -- from `add_directory_location`,
+            `load_pkg_prov`, or the location of the file ``path`` was written in -- or None for an
+            absolute ``path``
+        path: the file, relative to ``root`` or absolute (`~` expanded)
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
         generated_at: wall-clock datetime when the file was complete, stored as
             `prov:generatedAtTime`
@@ -103,12 +104,14 @@ def add_file_entity(
         URI of the file, the UUIDv5 of its location
 
     Raises:
-        ValueError: when PATH is relative without ROOT, or absolute with it
+        ValueError: when ``path`` is relative without ``root``, or a URIRef has no scheme
     """
     if isinstance(path, URIRef):
-        if root is not None or not urlsplit(path).scheme:
-            raise ValueError("An absolute URI requires root=None")
+        if not urlsplit(path).scheme:
+            raise ValueError(f"Absolute URI without a scheme: {path}")
         location = path
+    elif isinstance(path, str) and urlsplit(path).scheme in ("http", "https", "file"):
+        location = URIRef(path)
     else:
         path = Path(path).expanduser()
         if root is None:
@@ -119,6 +122,7 @@ def add_file_entity(
             location = URIRef(path.as_uri())
         else:
             location = add_relative_location(graph, root, path.as_posix())
+
     file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)
     for type_id in additional_types:

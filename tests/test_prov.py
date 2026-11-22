@@ -829,3 +829,14 @@ def test_explicit_url_capture_uses_open_outcome(tmp_path, downloaded):
     assert graph.value(local, SDO.identifier) == (None if downloaded else Literal("revision"))
     assert get_file_path(graph, local) == path
     assert graph.value(local, DCTERMS.identifier) is not None
+
+
+@pytest.mark.parametrize("scheme", ["http", "https", "file"])
+def test_file_entity_preserves_uri_strings(scheme):
+    graph = Graph()
+    location = URIRef(f"{scheme}://example.org/model.xml")
+    root = add_directory_location(graph, "/tmp/models")
+    entity = add_file_entity(graph, root, str(location))
+    assert entity == add_file_entity(graph, None, location)
+    assert graph.value(entity, PROV.atLocation) == location
+    assert entity == add_file_entity(graph, root, location)
