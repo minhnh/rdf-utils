@@ -9,6 +9,7 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.request import OpenerDirector
 
 import pytest
 from git import Repo
@@ -26,7 +27,7 @@ from rdf_utils.models.prov import (
     add_file_hash,
     add_relative_location,
     capture_file_prov,
-    capture_url_prov,
+    capture_resolved_source_prov,
     create_bundle,
     get_file_path,
     get_git_info,
@@ -820,7 +821,7 @@ def test_explicit_url_capture_uses_open_outcome(tmp_path, downloaded):
     with patch(
         "rdf_utils.models.prov.get_git_info", return_value=("revision", None, None, False)
     ) as git:
-        source = capture_url_prov(graph, iri, resolver=resolver, roots={})
+        source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
         assert git.called is not downloaded
     remote = graph.value(predicate=PROV.atLocation, object=iri)
     local = graph.value(predicate=PROV.alternateOf, object=remote)
@@ -840,3 +841,22 @@ def test_file_entity_preserves_uri_strings(scheme):
     assert entity == add_file_entity(graph, None, location)
     assert graph.value(entity, PROV.atLocation) == location
     assert entity == add_file_entity(graph, root, location)
+
+
+@pytest.mark.parametrize("form", [str, Path, lambda path: URIRef(path.as_uri())])
+def test_source_capture_accepts_local_paths(tmp_path, form):
+    path = tmp_path / "source.ttl"
+    path.write_text("")
+    graph = Graph()
+    source = capture_resolved_source_prov(graph, form(path), roots={})
+    assert get_file_path(graph, source) == path
+    assert graph.value(source, DCTERMS.identifier) is not None
+
+
+@pytest.mark.parametrize("resolver", [None, OpenerDirector()])
+def test_resolved_source_without_custom_resolver_retains_url(resolver):
+    graph = Graph()
+    iri = URIRef("https://example.org/source.ttl")
+    source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
+    assert graph.value(source, PROV.atLocation) == iri
+    assert graph.value(source, DCTERMS.identifier) is None

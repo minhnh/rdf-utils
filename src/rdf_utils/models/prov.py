@@ -14,7 +14,7 @@ from importlib import resources, util
 from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path, PurePath
 from urllib.parse import SplitResult, quote, unquote, urljoin, urlsplit
-from urllib.request import url2pathname
+from urllib.request import OpenerDirector, url2pathname
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
@@ -995,15 +995,15 @@ def load_execution_prov(
     )
 
 
-def capture_url_prov(
+def capture_resolved_source_prov(
     graph: Graph,
-    iri: URIRef,
+    source: str | Path | URIRef,
     *,
-    resolver: IriToFileResolver | None,
+    resolver: OpenerDirector | None = None,
     roots: dict[Path, URIRef],
     captured: dict[Path, URIRef] | None = None,
 ) -> URIRef:
-    """Capture an explicit URL without downloading: fresh downloads use URL identity.
+    """Capture a loaded source using available resolver metadata, without downloading.
 
     Hashes identify the local copy, linked to the URL with prov:alternateOf. Existing
     local files also receive Git metadata. Remote-only sources retain URL identity
@@ -1011,23 +1011,39 @@ def capture_url_prov(
 
     Parameters:
         graph: Destination provenance graph.
-        iri: Explicit source URI, preserved for remote sources.
-        resolver: Resolver used to load the source, or None when no local mapping is available.
+        source: Filesystem path or source URI.
+        resolver: Opener used to load the source; only IriToFileResolver provides local metadata.
         roots: Shared local directory-to-identity mapping for file capture.
         captured: Optional map of previously captured local files.
 
     Returns:
         Captured source entity URI.
     """
+    if isinstance(source, Path):
+        return capture_file_prov(graph, source, roots=roots, captured=captured)
+
+    scheme = urlsplit(source).scheme
+    if not scheme or scheme == "file":
+        path = path_from_file_url(source) if scheme == "file" else Path(source)
+        return capture_file_prov(graph, path, roots=roots, captured=captured)
+
+    iri = URIRef(source)
     remote = add_file_entity(graph, None, iri)
-    local_path, downloaded = resolver.get_source(iri) if resolver is not None else (None, False)
+    if isinstance(resolver, IriToFileResolver):
+        local_path, downloaded = resolver.get_source(source)
+    else:
+        local_path, downloaded = (None, False)
+
     if local_path is None:
         return remote
+
     if downloaded:
         local = add_file_entity(graph, None, local_path)
         add_file_hash(graph, local)
     else:
         local = capture_file_prov(graph, local_path, roots=roots, captured=captured)
+
     if local != remote:
         graph.add((local, PROV.alternateOf, remote))
+
     return remote if downloaded else local
