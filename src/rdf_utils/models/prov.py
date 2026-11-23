@@ -1019,7 +1019,7 @@ def capture_resolved_source_prov(
     Returns:
         Captured source entity URI.
     """
-    if isinstance(source, Path):
+    if isinstance(source, Path) or Path(source).is_absolute():
         return capture_file_prov(graph, source, roots=roots, captured=captured)
 
     scheme = urlsplit(source).scheme
