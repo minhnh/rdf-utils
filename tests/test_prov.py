@@ -17,6 +17,7 @@ from packageurl import ValidationSeverity
 from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 
+from rdf_utils import MediaType
 from rdf_utils.constraints import SHACLViolation, check_shacl_constraints
 from rdf_utils.models.prov import (
     PackageInfo,
@@ -474,13 +475,13 @@ class ProvTest(unittest.TestCase):
             generated_by=RUN,
             generated_at=self.t1,
             modified_at=self.t1,
-            fmt="application/octet-stream",
+            fmt=MediaType.PROTOBUF,
         )
         self.assertIn((RUN, RDF.type, URI_PROV_EXT_TYPE_EXECUTION), self.graph)
         self.assertIn((RUN, PROV.wasAssociatedWith, PKG), self.graph)
         self.assertIn((log, PROV.wasGeneratedBy, RUN), self.graph)
         self.assertEqual(get_file_path(self.graph, log), Path("/tmp/run/frames.log"))
-        self.assertIn((log, DCTERMS.format, Literal("application/octet-stream")), self.graph)
+        self.assertIn((log, DCTERMS.format, MediaType.PROTOBUF.iri), self.graph)
         self.assertEqual(self.graph.value(log, PROV.generatedAtTime).toPython(), self.t1)
         self.assertEqual(self.graph.value(log, DCTERMS.modified).toPython(), self.t1)
         check_shacl_constraints(self.graph, SHACL)
