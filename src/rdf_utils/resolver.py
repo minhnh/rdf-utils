@@ -1,18 +1,22 @@
 # SPDX-License-Identifier: MPL-2.0
 # Inspired by https://github.com/comp-rob2b/kindyngen/ (kindyngen.utility.resolver)
-import pathlib
+import os
 import urllib.request
 import urllib.response
+from collections.abc import Mapping
 from email.message import EmailMessage
-from os.path import join
+from pathlib import Path
 from socket import _GLOBAL_DEFAULT_TIMEOUT
+from tempfile import NamedTemporaryFile
+from types import MappingProxyType
+from urllib.parse import urlsplit
 
 import platformdirs
 
 from rdf_utils import __version__
 from rdf_utils.namespace import URL_COMP_ROB2B, URL_SECORO
 
-PKG_CACHE_ROOT = join(platformdirs.user_cache_dir(), "rdf-utils")
+PKG_CACHE_ROOT = Path(platformdirs.user_cache_dir()) / "rdf-utils"
 
 
 class IriToFileResolver(urllib.request.OpenerDirector):
@@ -30,13 +34,21 @@ class IriToFileResolver(urllib.request.OpenerDirector):
                downloaded to.
     """
 
-    def __init__(self, url_map: dict, download: bool = True, quiet: bool = False):
+    def __init__(self, url_map: dict[str, str | Path], download: bool = True, quiet: bool = False):
         super().__init__()
+        self._opened_sources: dict[str, tuple[Path | None, bool]] = {}
         self.default_opener = urllib.request.build_opener()
-        self.url_map = url_map
+        self.url_map: dict[str, Path] = {
+            prefix: Path(directory) for prefix, directory in url_map.items()
+        }
         self._download = download
         self._quiet = quiet
         self._empty_header = EmailMessage()  # header expected by addinfourl
+
+    @property
+    def opened_sources(self) -> Mapping[str, tuple[Path | None, bool]]:
+        """Read-only view of the latest successful open for each URL."""
+        return MappingProxyType(self._opened_sources)
 
     def open(self, fullurl, data=None, timeout=_GLOBAL_DEFAULT_TIMEOUT):
         if isinstance(fullurl, str):
@@ -49,7 +61,8 @@ class IriToFileResolver(urllib.request.OpenerDirector):
                 f"expected URL of type 'str' or 'urllib.request.Request', got type '{type(fullurl)}'"
             )
 
-        url = pathlib.Path(url_req.full_url)
+        downloaded = False
+        url = Path(url_req.full_url)
 
         # If the requested URL starts with any key in the url_map, fetch the file from a
         # local file that is derived from the URL and the value in the map
@@ -57,8 +70,7 @@ class IriToFileResolver(urllib.request.OpenerDirector):
             if not url.is_relative_to(prefix):
                 continue
 
-            # Wrap the directory in a pathlib.Path to get access to convenience functions
-            path = pathlib.Path(directory).joinpath(url.relative_to(prefix))
+            path = directory.joinpath(url.relative_to(prefix))
 
             # Download file if not exist in system and `download` is specified.
             # If `download` not specified, break from loop to open URL using default opener.
@@ -74,11 +86,19 @@ class IriToFileResolver(urllib.request.OpenerDirector):
                 if not self._quiet:
                     print(f"Dowloading '{url}' & caching to '{parent_path}'")
 
-                with (
-                    self.default_opener.open(url_req, data=data, timeout=timeout) as url_data,
-                    path.open("wb") as cache_file,
-                ):
-                    cache_file.write(url_data.read())
+                temporary = None
+                try:
+                    with (
+                        self.default_opener.open(url_req, data=data, timeout=timeout) as url_data,
+                        NamedTemporaryFile(dir=parent_path, delete=False) as cache_file,
+                    ):
+                        temporary = Path(cache_file.name)
+                        cache_file.write(url_data.read())
+                    os.replace(temporary, path)
+                    downloaded = True
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
                 assert path.exists(), f"File '{path}' not cached for URL '{url_req.full_url}'"
 
             # Open the file and wrap it in an urllib response
@@ -86,19 +106,27 @@ class IriToFileResolver(urllib.request.OpenerDirector):
             resp = urllib.response.addinfourl(
                 fp, headers=self._empty_header, url=url_req.full_url, code=200
             )
+            self._opened_sources[url_req.full_url] = (path.resolve(), downloaded)
             return resp
 
         # If we did not find any match above just continue with the default opener
         # which has the behaviour as initially expected by rdflib.
-        return self.default_opener.open(url_req, data=data, timeout=timeout)
+        resp = self.default_opener.open(url_req, data=data, timeout=timeout)
+        parsed = urlsplit(url_req.full_url)
+        path = Path(urllib.request.url2pathname(parsed.path)) if parsed.scheme == "file" else None
+        self._opened_sources[url_req.full_url] = (
+            path.resolve() if path is not None and path.is_file() else None,
+            False,
+        )
+        return resp
 
 
 def install_resolver(
     resolver: urllib.request.OpenerDirector | None = None,
-    url_map: dict | None = None,
+    url_map: dict[str, str | Path] | None = None,
     download: bool = True,
     quiet: bool = False,
-) -> None:
+) -> urllib.request.OpenerDirector:
     """Implements default behaviours for resolver installation
 
     Parameters:
@@ -113,6 +141,9 @@ def install_resolver(
         quiet: Option for more verbose output, created for printing caching location in
                [`IriToFileResolver`](rdf_utils.resolver.IriToFileResolver)
 
+    Returns:
+        The installed opener; the default is an IriToFileResolver with source lookup support.
+
     Note:
         Only a single opener can be globally installed in urllib.
         Only the latest installed resolver will be active.
@@ -120,9 +151,11 @@ def install_resolver(
     if resolver is None:
         if url_map is None:
             url_map = {
-                URL_SECORO: join(PKG_CACHE_ROOT, "secoro"),
-                URL_COMP_ROB2B: join(PKG_CACHE_ROOT, "comp-rob2b"),
+                URL_SECORO: PKG_CACHE_ROOT / "secoro",
+                URL_COMP_ROB2B: PKG_CACHE_ROOT / "comp-rob2b",
             }
         resolver = IriToFileResolver(url_map=url_map, download=download, quiet=quiet)
 
     urllib.request.install_opener(resolver)
+
+    return resolver

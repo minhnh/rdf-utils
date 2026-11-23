@@ -9,6 +9,7 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.request import OpenerDirector
 
 import pytest
 from git import Repo
@@ -25,7 +26,9 @@ from rdf_utils.models.prov import (
     add_file_entity,
     add_file_hash,
     add_relative_location,
+    add_resolver_prov,
     capture_file_prov,
+    capture_resolved_source_prov,
     create_bundle,
     get_file_path,
     get_git_info,
@@ -58,7 +61,7 @@ from rdf_utils.namespace import (
     URL_MM_TIME_SHACL,
     URL_SECORO_M,
 )
-from rdf_utils.resolver import install_resolver
+from rdf_utils.resolver import IriToFileResolver, install_resolver
 
 URI_TEST = f"{URL_SECORO_M}/tests/prov"
 PKG = URIRef(f"{URI_TEST}/pkg")
@@ -806,3 +809,75 @@ def test_python_package_metadata_snapshot():
     assert get_py_pkg_info("rdf_utils") is first
     get_py_pkg_info.cache_clear()
     assert get_py_pkg_info("rdf_utils") == first
+
+
+@pytest.mark.parametrize("downloaded", [False, True])
+def test_explicit_url_capture_uses_open_outcome(tmp_path, downloaded):
+    path = tmp_path / "source.json"
+    path.write_text("{}")
+    iri = URIRef("https://example.org/source.json")
+    resolver = IriToFileResolver({"https://example.org/": tmp_path})
+    resolver._opened_sources[str(iri)] = (path, downloaded)
+    graph = Graph()
+    with patch(
+        "rdf_utils.models.prov.get_git_info", return_value=("revision", None, None, False)
+    ) as git:
+        source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
+        assert git.called is not downloaded
+    remote = graph.value(predicate=PROV.atLocation, object=iri)
+    local = graph.value(predicate=PROV.alternateOf, object=remote)
+    assert source == (remote if downloaded else local)
+    assert graph.value(remote, DCTERMS.identifier) is None
+    assert graph.value(local, SDO.identifier) == (None if downloaded else Literal("revision"))
+    assert get_file_path(graph, local) == path
+    assert graph.value(local, DCTERMS.identifier) is not None
+
+
+@pytest.mark.parametrize("scheme", ["http", "https", "file"])
+def test_file_entity_preserves_uri_strings(scheme):
+    graph = Graph()
+    location = URIRef(f"{scheme}://example.org/model.xml")
+    root = add_directory_location(graph, "/tmp/models")
+    entity = add_file_entity(graph, root, str(location))
+    assert entity == add_file_entity(graph, None, location)
+    assert graph.value(entity, PROV.atLocation) == location
+    assert entity == add_file_entity(graph, root, location)
+
+
+@pytest.mark.parametrize("form", [str, Path, lambda path: URIRef(path.as_uri())])
+def test_source_capture_accepts_local_paths(tmp_path, form):
+    path = tmp_path / "source.ttl"
+    path.write_text("")
+    graph = Graph()
+    source = capture_resolved_source_prov(graph, form(path), roots={})
+    assert get_file_path(graph, source) == path
+    assert graph.value(source, DCTERMS.identifier) is not None
+
+
+@pytest.mark.parametrize("resolver", [None, OpenerDirector(), IriToFileResolver({})])
+def test_resolved_source_without_open_metadata_retains_url(resolver):
+    graph = Graph()
+    iri = URIRef("https://example.org/source.ttl")
+    source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
+    assert graph.value(source, PROV.atLocation) == iri
+    assert graph.value(source, DCTERMS.identifier) is None
+
+
+def test_resolver_prov_reuses_captured_files(tmp_path):
+    activity = URIRef("urn:loading")
+    path = tmp_path / "context.json"
+    path.write_text("{}")
+    iri = "https://example.org/context.json"
+    resolver = IriToFileResolver({"https://example.org/": tmp_path})
+    with resolver.open(iri):
+        pass
+    graph = Graph()
+    roots, captured = {}, {}
+    source = capture_resolved_source_prov(
+        graph, iri, resolver=resolver, roots=roots, captured=captured
+    )
+    with patch("rdf_utils.models.prov.add_file_hash") as hash_file:
+        add_resolver_prov(graph, resolver, activity, roots=roots, captured=captured)
+        hash_file.assert_not_called()
+    assert (activity, PROV.used, source) in graph
+    assert graph.value(activity, PROV.wasAssociatedWith) == get_py_pkg_info("rdf_utils").purl

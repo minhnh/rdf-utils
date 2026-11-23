@@ -14,7 +14,7 @@ from importlib import resources, util
 from importlib.metadata import PackageNotFoundError, distribution, packages_distributions
 from pathlib import Path, PurePath
 from urllib.parse import SplitResult, quote, unquote, urljoin, urlsplit
-from urllib.request import url2pathname
+from urllib.request import OpenerDirector, url2pathname
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
@@ -33,6 +33,7 @@ from rdf_utils.models.vocab import (
     URI_ROS_TYPE_PACKAGE,
     URI_SPDX_SW_TYPE_PACKAGE,
 )
+from rdf_utils.resolver import IriToFileResolver
 
 
 def add_entity(graph: Graph, entity_id: URIRef | None = None) -> URIRef:
@@ -72,24 +73,26 @@ def add_directory_location(graph: Graph, directory: str | Path) -> URIRef:
 def add_file_entity(
     graph: Graph,
     root: URIRef | None,
-    path: str | Path,
+    path: str | Path | URIRef,
     generated_by: URIRef | None = None,
     generated_at: datetime | None = None,
     modified_at: datetime | None = None,
     fmt: str | None = None,
     additional_types: Iterable[URIRef] = (),
 ) -> URIRef:
-    """Add a file as a `prov:Entity` at PATH, which need not exist.
+    """Add a file as a `prov:Entity` at ``path``, which need not exist.
 
-    A relative PATH is located by `add_relative_location` under ROOT, an absolute one at its
+    Absolute URIRefs and HTTP(S)/file URL strings retain their location without
+    filesystem conversion, ignoring ``root``.
+    A relative ``path`` is located by `add_relative_location` under ``root``, an absolute one at its
     `file:` IRI. A step that read or wrote the file states its hash with `add_file_hash`.
 
     Parameters:
         graph: RDF graph to add the file to
-        root: the location a relative PATH is relative to -- from `add_directory_location`,
-            `load_pkg_prov`, or the location of the file PATH was written in -- or None for an
-            absolute PATH
-        path: the file, relative to ROOT or absolute (`~` expanded)
+        root: the location a relative ``path`` is relative to -- from `add_directory_location`,
+            `load_pkg_prov`, or the location of the file ``path`` was written in -- or None for an
+            absolute ``path``
+        path: the file, relative to ``root`` or absolute (`~` expanded)
         generated_by: URI of the activity that generated it, stored as `prov:wasGeneratedBy`
         generated_at: wall-clock datetime when the file was complete, stored as
             `prov:generatedAtTime`
@@ -101,15 +104,25 @@ def add_file_entity(
         URI of the file, the UUIDv5 of its location
 
     Raises:
-        ValueError: when PATH is relative without ROOT, or absolute with it
+        ValueError: when ``path`` is relative without ``root``, or a URIRef has no scheme
     """
-    path = Path(path).expanduser()
-    if root is None:
-        if not path.is_absolute():
-            raise ValueError(f"'{path}' is a relative path -- it needs the root it is relative to")
-        location = URIRef(path.as_uri())
+    if isinstance(path, URIRef):
+        if not urlsplit(path).scheme:
+            raise ValueError(f"Absolute URI without a scheme: {path}")
+        location = path
+    elif isinstance(path, str) and urlsplit(path).scheme in ("http", "https", "file"):
+        location = URIRef(path)
     else:
-        location = add_relative_location(graph, root, path.as_posix())
+        path = Path(path).expanduser()
+        if root is None:
+            if not path.is_absolute():
+                raise ValueError(
+                    f"'{path}' is a relative path -- it needs the root it is relative to"
+                )
+            location = URIRef(path.as_uri())
+        else:
+            location = add_relative_location(graph, root, path.as_posix())
+
     file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)
     for type_id in additional_types:
@@ -139,7 +152,6 @@ def add_file_hash(graph: Graph, file_id: URIRef) -> None:
     path = get_file_path(graph, file_id)
     if path is None:
         raise ValueError(f"File entity '{file_id}' has no location")
-    # Streamed: a run's log or bag can be larger than memory.
     with path.open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").digest()
     encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
@@ -981,3 +993,86 @@ def load_execution_prov(
         started,
         ended,
     )
+
+
+def capture_resolved_source_prov(
+    graph: Graph,
+    source: str | Path | URIRef,
+    *,
+    resolver: OpenerDirector | None = None,
+    roots: dict[Path, URIRef],
+    captured: dict[Path, URIRef] | None = None,
+) -> URIRef:
+    """Capture a loaded source using available resolver metadata, without downloading.
+
+    Hashes identify the local copy, linked to the URL with prov:alternateOf. Existing
+    local files also receive Git metadata. Remote-only sources retain URL identity
+    without a hash. The resolver reports the latest open's outcome.
+
+    Parameters:
+        graph: Destination provenance graph.
+        source: Filesystem path or source URI.
+        resolver: Opener used to load the source; only IriToFileResolver provides local metadata.
+        roots: Shared local directory-to-identity mapping for file capture.
+        captured: Optional map of previously captured local files.
+
+    Returns:
+        Captured source entity URI.
+    """
+    if isinstance(source, Path) or Path(source).is_absolute():
+        return capture_file_prov(graph, source, roots=roots, captured=captured)
+
+    scheme = urlsplit(source).scheme
+    if not scheme or scheme == "file":
+        path = path_from_file_url(source) if scheme == "file" else Path(source)
+        return capture_file_prov(graph, path, roots=roots, captured=captured)
+
+    if isinstance(resolver, IriToFileResolver):
+        local_path, downloaded = resolver.opened_sources.get(str(source), (None, False))
+    else:
+        local_path, downloaded = (None, False)
+
+    iri = URIRef(source)
+    remote = add_file_entity(graph, None, iri)
+
+    if local_path is None:
+        return remote
+
+    if downloaded:
+        local = add_file_entity(graph, None, local_path)
+        add_file_hash(graph, local)
+    else:
+        local = capture_file_prov(graph, local_path, roots=roots, captured=captured)
+
+    if local != remote:
+        graph.add((local, PROV.alternateOf, remote))
+
+    return remote if downloaded else local
+
+
+def add_resolver_prov(
+    graph: Graph,
+    resolver: OpenerDirector | None,
+    activity_id: URIRef,
+    *,
+    roots: dict[Path, URIRef],
+    captured: dict[Path, URIRef] | None = None,
+) -> None:
+    """Capture recorded resolver sources and link them to an existing loading activity.
+
+    Parameters:
+        graph: Destination provenance graph.
+        resolver: Opener whose recorded sources are captured; other openers are ignored.
+        activity_id: Existing loading activity that used the recorded sources.
+        roots: Shared local directory-to-identity mapping.
+        captured: Shared file-path-to-entity mapping to avoid repeated local capture.
+    """
+    if not isinstance(resolver, IriToFileResolver):
+        return
+    for iri in resolver.opened_sources:
+        source = capture_resolved_source_prov(
+            graph, iri, resolver=resolver, roots=roots, captured=captured
+        )
+        graph.add((activity_id, PROV.used, source))
+    agent = load_py_pkg_prov(graph, "rdf_utils").purl
+    graph.add((activity_id, PROV.wasAssociatedWith, agent))
