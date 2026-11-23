@@ -26,6 +26,7 @@ from rdf_utils.models.prov import (
     add_file_entity,
     add_file_hash,
     add_relative_location,
+    add_resolver_prov,
     capture_file_prov,
     capture_resolved_source_prov,
     create_bundle,
@@ -860,3 +861,23 @@ def test_resolved_source_without_open_metadata_retains_url(resolver):
     source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
     assert graph.value(source, PROV.atLocation) == iri
     assert graph.value(source, DCTERMS.identifier) is None
+
+
+def test_resolver_prov_reuses_captured_files(tmp_path):
+    activity = URIRef("urn:loading")
+    path = tmp_path / "context.json"
+    path.write_text("{}")
+    iri = "https://example.org/context.json"
+    resolver = IriToFileResolver({"https://example.org/": tmp_path})
+    with resolver.open(iri):
+        pass
+    graph = Graph()
+    roots, captured = {}, {}
+    source = capture_resolved_source_prov(
+        graph, iri, resolver=resolver, roots=roots, captured=captured
+    )
+    with patch("rdf_utils.models.prov.add_file_hash") as hash_file:
+        add_resolver_prov(graph, resolver, activity, roots=roots, captured=captured)
+        hash_file.assert_not_called()
+    assert (activity, PROV.used, source) in graph
+    assert graph.value(activity, PROV.wasAssociatedWith) == get_py_pkg_info("rdf_utils").purl

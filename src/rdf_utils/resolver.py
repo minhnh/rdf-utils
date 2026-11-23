@@ -3,10 +3,12 @@
 import os
 import urllib.request
 import urllib.response
+from collections.abc import Mapping
 from email.message import EmailMessage
 from pathlib import Path
 from socket import _GLOBAL_DEFAULT_TIMEOUT
 from tempfile import NamedTemporaryFile
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 import platformdirs
@@ -43,9 +45,10 @@ class IriToFileResolver(urllib.request.OpenerDirector):
         self._quiet = quiet
         self._empty_header = EmailMessage()  # header expected by addinfourl
 
-    def get_source(self, iri: str) -> tuple[Path | None, bool]:
-        """Return the latest successful open's (local path, downloaded), or (None, False)."""
-        return self._opened_sources.get(str(iri), (None, False))
+    @property
+    def opened_sources(self) -> Mapping[str, tuple[Path | None, bool]]:
+        """Read-only view of the latest successful open for each URL."""
+        return MappingProxyType(self._opened_sources)
 
     def open(self, fullurl, data=None, timeout=_GLOBAL_DEFAULT_TIMEOUT):
         if isinstance(fullurl, str):

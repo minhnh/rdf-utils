@@ -1028,7 +1028,7 @@ def capture_resolved_source_prov(
         return capture_file_prov(graph, path, roots=roots, captured=captured)
 
     if isinstance(resolver, IriToFileResolver):
-        local_path, downloaded = resolver.get_source(source)
+        local_path, downloaded = resolver.opened_sources.get(str(source), (None, False))
     else:
         local_path, downloaded = (None, False)
 
@@ -1048,3 +1048,31 @@ def capture_resolved_source_prov(
         graph.add((local, PROV.alternateOf, remote))
 
     return remote if downloaded else local
+
+
+def add_resolver_prov(
+    graph: Graph,
+    resolver: OpenerDirector | None,
+    activity_id: URIRef,
+    *,
+    roots: dict[Path, URIRef],
+    captured: dict[Path, URIRef] | None = None,
+) -> None:
+    """Capture recorded resolver sources and link them to an existing loading activity.
+
+    Parameters:
+        graph: Destination provenance graph.
+        resolver: Opener whose recorded sources are captured; other openers are ignored.
+        activity_id: Existing loading activity that used the recorded sources.
+        roots: Shared local directory-to-identity mapping.
+        captured: Shared file-path-to-entity mapping to avoid repeated local capture.
+    """
+    if not isinstance(resolver, IriToFileResolver):
+        return
+    for iri in resolver.opened_sources:
+        source = capture_resolved_source_prov(
+            graph, iri, resolver=resolver, roots=roots, captured=captured
+        )
+        graph.add((activity_id, PROV.used, source))
+    agent = load_py_pkg_prov(graph, "rdf_utils").purl
+    graph.add((activity_id, PROV.wasAssociatedWith, agent))
