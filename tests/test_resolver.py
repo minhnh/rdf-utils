@@ -36,11 +36,14 @@ def test_download_and_cache_resolution(tmp_path, string_directory, monkeypatch):
     assert install_resolver(resolver) is resolver
     resolver.default_opener = Mock()
     resolver.default_opener.open.side_effect = lambda *a, **k: BytesIO(b"{}")
-    assert resolver.get_source(uri)[0] is None
+    assert resolver.get_source(uri) == (None, False)
     with resolver.open(uri) as response:
         assert response.read() == b"{}"
     assert resolver.get_source(uri) == (tmp_path / "model.json", True)
     cached = IriToFileResolver(resolver.url_map)
+    assert cached.get_source(uri) == (None, False)
+    with cached.open(uri):
+        pass
     assert cached.get_source(uri) == (tmp_path / "model.json", False)
     with resolver.open(uri):
         pass

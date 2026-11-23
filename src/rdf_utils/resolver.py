@@ -44,24 +44,8 @@ class IriToFileResolver(urllib.request.OpenerDirector):
         self._empty_header = EmailMessage()  # header expected by addinfourl
 
     def get_source(self, iri: str) -> tuple[Path | None, bool]:
-        """Return the latest open's (local path, downloaded), or inspect local availability.
-
-        Lookup never downloads a resource or records an open.
-        """
-        iri = str(iri)
-        if iri in self._opened_sources:
-            return self._opened_sources[iri]
-        parsed = urlsplit(iri)
-        path = None
-        if parsed.scheme == "file":
-            path = Path(urllib.request.url2pathname(parsed.path))
-        else:
-            url = Path(iri)
-            for prefix, directory in self.url_map.items():
-                if url.is_relative_to(prefix):
-                    path = directory.joinpath(url.relative_to(prefix))
-                    break
-        return (path.resolve() if path is not None and path.is_file() else None, False)
+        """Return the latest successful open's (local path, downloaded), or (None, False)."""
+        return self._opened_sources.get(str(iri), (None, False))
 
     def open(self, fullurl, data=None, timeout=_GLOBAL_DEFAULT_TIMEOUT):
         if isinstance(fullurl, str):

@@ -853,8 +853,8 @@ def test_source_capture_accepts_local_paths(tmp_path, form):
     assert graph.value(source, DCTERMS.identifier) is not None
 
 
-@pytest.mark.parametrize("resolver", [None, OpenerDirector()])
-def test_resolved_source_without_custom_resolver_retains_url(resolver):
+@pytest.mark.parametrize("resolver", [None, OpenerDirector(), IriToFileResolver({})])
+def test_resolved_source_without_open_metadata_retains_url(resolver):
     graph = Graph()
     iri = URIRef("https://example.org/source.ttl")
     source = capture_resolved_source_prov(graph, iri, resolver=resolver, roots={})
