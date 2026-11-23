@@ -1027,12 +1027,13 @@ def capture_resolved_source_prov(
         path = path_from_file_url(source) if scheme == "file" else Path(source)
         return capture_file_prov(graph, path, roots=roots, captured=captured)
 
-    iri = URIRef(source)
-    remote = add_file_entity(graph, None, iri)
     if isinstance(resolver, IriToFileResolver):
         local_path, downloaded = resolver.get_source(source)
     else:
         local_path, downloaded = (None, False)
+
+    iri = URIRef(source)
+    remote = add_file_entity(graph, None, iri)
 
     if local_path is None:
         return remote
