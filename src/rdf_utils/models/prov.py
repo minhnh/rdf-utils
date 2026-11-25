@@ -99,8 +99,7 @@ def add_file_entity(
             `prov:generatedAtTime`
         modified_at: wall-clock datetime when the file last changed, stored as `dcterms:modified`
         fmt: media type of the file, its IRI stored as `dcterms:format`; by default the one
-            `MEDIA_TYPE_EXTENSIONS` gives its last two suffixes (`.ld.json`), else its last one,
-            none if neither is listed
+            `MEDIA_TYPE_EXTENSIONS` gives its extension, none if it is not listed
         additional_types: its kinds besides `prov:Entity`
 
     Returns:
@@ -113,10 +112,10 @@ def add_file_entity(
         if not urlsplit(path).scheme:
             raise ValueError(f"Absolute URI without a scheme: {path}")
         location = path
-        suffixes = PurePath(urlsplit(path).path).suffixes
+        suffix = PurePath(urlsplit(path).path).suffix
     elif isinstance(path, str) and urlsplit(path).scheme in ("http", "https", "file"):
         location = URIRef(path)
-        suffixes = PurePath(urlsplit(path).path).suffixes
+        suffix = PurePath(urlsplit(path).path).suffix
     else:
         path = Path(path).expanduser()
         if root is None:
@@ -127,11 +126,9 @@ def add_file_entity(
             location = URIRef(path.as_uri())
         else:
             location = add_relative_location(graph, root, path.as_posix())
-        suffixes = path.suffixes
+        suffix = path.suffix
     if fmt is None:
-        fmt = MEDIA_TYPE_EXTENSIONS.get("".join(suffixes[-2:])) or MEDIA_TYPE_EXTENSIONS.get(
-            "".join(suffixes[-1:])
-        )
+        fmt = MEDIA_TYPE_EXTENSIONS.get(suffix)
 
     file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)

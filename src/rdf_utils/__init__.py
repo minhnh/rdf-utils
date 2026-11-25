@@ -57,6 +57,7 @@ class MediaType(StrEnum):
     FSM = "text/x.secorolab.fsm"
     BDD = "text/x.secorolab.bdd"
     BDDX = "text/x.secorolab.bddx"
+    FPM = "text/x.secorolab.fpm"
     ST = "text/x.stringtemplate"
     STG = "text/x.stringtemplate-group"
     JSON_LD = "application/ld+json"
@@ -89,7 +90,6 @@ class MediaType(StrEnum):
         return URIRef(f"{base}/{self}")
 
 
-# MJCF is plain `.xml`: its writer states it
 MEDIA_TYPE_EXTENSIONS = {
     ".robmot": MediaType.ROBMOT,
     ".scene": MediaType.SCENE,
@@ -98,24 +98,8 @@ MEDIA_TYPE_EXTENSIONS = {
     ".fsm": MediaType.FSM,
     ".bdd": MediaType.BDD,
     ".bddx": MediaType.BDDX,
-    ".st": MediaType.ST,
-    ".stg": MediaType.STG,
-    ".ld.json": MediaType.JSON_LD,
+    ".fpm": MediaType.FPM,
     ".nq": MediaType.NQUADS,
     ".trig": MediaType.TRIG,
     ".ttl": MediaType.TURTLE,
-    ".json": MediaType.JSON,
-    ".toml": MediaType.TOML,
-    ".urdf": MediaType.URDF,
-    ".usd": MediaType.USD,
-    ".usda": MediaType.USDA,
-    ".usdc": MediaType.USDC,
-    ".usdz": MediaType.USDZ,
-    ".stl": MediaType.STL,
-    ".obj": MediaType.OBJ,
-    ".cpp": MediaType.CPP,
-    ".hpp": MediaType.HPP,
-    ".txt": MediaType.TEXT,
-    ".pb": MediaType.PROTOBUF,
-    ".mp4": MediaType.MP4,
 }
