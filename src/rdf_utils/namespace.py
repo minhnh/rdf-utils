@@ -8,6 +8,8 @@ URL_SECORO_MM = f"{URL_SECORO}/metamodels"
 URL_SECORO_M = f"{URL_SECORO}/models"
 URL_SECORO_UNI = "https://secoro.uni-bremen.de"
 URL_COMP_ROB2B = "https://comp-rob2b.github.io"
+URL_IANA_MEDIA_TYPES = "https://www.iana.org/assignments/media-types"
+URL_SECORO_MEDIA_TYPES = f"{URL_SECORO_MM}/media-types"
 
 URL_MM_GEOM_COORD_SECO_JSON = f"{URL_SECORO_MM}/geometry/coordinates.json"
 URL_MM_GEOM_SHACL_EXTS = f"{URL_SECORO_MM}/geometry/geometry.shacl.ttl"

@@ -23,6 +23,7 @@ from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 from rdflib.term import Node
 
+from rdf_utils import MEDIA_TYPE_EXTENSIONS, MediaType
 from rdf_utils.models.time import add_wall_instant
 from rdf_utils.models.vocab import (
     URI_PROV_EXT_PRED_REL_PATH,
@@ -77,7 +78,7 @@ def add_file_entity(
     generated_by: URIRef | None = None,
     generated_at: datetime | None = None,
     modified_at: datetime | None = None,
-    fmt: str | None = None,
+    fmt: MediaType | None = None,
     additional_types: Iterable[URIRef] = (),
 ) -> URIRef:
     """Add a file as a `prov:Entity` at ``path``, which need not exist.
@@ -97,7 +98,8 @@ def add_file_entity(
         generated_at: wall-clock datetime when the file was complete, stored as
             `prov:generatedAtTime`
         modified_at: wall-clock datetime when the file last changed, stored as `dcterms:modified`
-        fmt: media type of the file, stored as `dcterms:format`
+        fmt: media type of the file, its IRI stored as `dcterms:format`; by default the one
+            `MEDIA_TYPE_EXTENSIONS` gives its extension, none if it is not listed
         additional_types: its kinds besides `prov:Entity`
 
     Returns:
@@ -110,8 +112,10 @@ def add_file_entity(
         if not urlsplit(path).scheme:
             raise ValueError(f"Absolute URI without a scheme: {path}")
         location = path
+        suffix = PurePath(urlsplit(path).path).suffix
     elif isinstance(path, str) and urlsplit(path).scheme in ("http", "https", "file"):
         location = URIRef(path)
+        suffix = PurePath(urlsplit(path).path).suffix
     else:
         path = Path(path).expanduser()
         if root is None:
@@ -122,6 +126,9 @@ def add_file_entity(
             location = URIRef(path.as_uri())
         else:
             location = add_relative_location(graph, root, path.as_posix())
+        suffix = path.suffix
+    if fmt is None:
+        fmt = MEDIA_TYPE_EXTENSIONS.get(suffix)
 
     file_id = URIRef(uuid5(NAMESPACE_URL, location).urn)
     add_entity(graph, file_id)
@@ -135,7 +142,7 @@ def add_file_entity(
     if modified_at is not None:
         graph.add((file_id, DCTERMS.modified, Literal(modified_at)))
     if fmt is not None:
-        graph.add((file_id, DCTERMS.format, Literal(fmt)))
+        graph.add((file_id, DCTERMS.format, fmt.iri))
     return file_id
 
 
@@ -165,6 +172,7 @@ def capture_file_prov(
     roots: dict[Path, URIRef],
     captured: dict[Path, URIRef] | None = None,
     allow_missing: bool = False,
+    fmt: MediaType | None = None,
 ) -> URIRef:
     """Record a file's location and hash, reusing known roots and previously captured files.
 
@@ -178,6 +186,7 @@ def capture_file_prov(
             register a directory root when none matches. Roots must resolve locally for hashing.
         captured: Optional file-path-to-entity map; reuse the first capture without reading again.
         allow_missing: Keep the file location without a hash when the file is missing.
+        fmt: Media type, for a file whose extension does not give it; see `add_file_entity`.
 
     Returns:
         File entity URI.
@@ -211,7 +220,7 @@ def capture_file_prov(
     else:
         directory, identity = selected
 
-    file_id = add_file_entity(graph, identity, path.relative_to(directory))
+    file_id = add_file_entity(graph, identity, path.relative_to(directory), fmt=fmt)
     try:
         add_file_hash(graph, file_id)
     except FileNotFoundError:
