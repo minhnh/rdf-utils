@@ -19,7 +19,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from packageurl import PackageURL, ValidationSeverity
-from rdflib import RDF, XSD, Dataset, Graph, Literal, URIRef
+from rdflib import RDF, XSD, Dataset, Graph, IdentifiedNode, Literal, URIRef
 from rdflib.namespace import DCTERMS, PROV, SDO, TIME
 from rdflib.term import Node
 
@@ -358,7 +358,9 @@ def get_file_path(graph: Graph, node: Node) -> Path | None:
     return path_from_file_url(str(resolved))
 
 
-def get_linked_file_path(graph: Graph, node_id: URIRef, predicate: URIRef) -> Path | None:
+def get_linked_file_path(
+    graph: Graph, node_id: URIRef, predicate: URIRef
+) -> tuple[None, None] | tuple[IdentifiedNode, Path | None]:
     """Resolve the local file linked from a node through a supplied predicate.
 
     Parameters:
@@ -367,13 +369,22 @@ def get_linked_file_path(graph: Graph, node_id: URIRef, predicate: URIRef) -> Pa
         predicate: relation to follow, e.g. `dcterms:source` or `prov:wasDerivedFrom`
 
     Returns:
-        File path; None when the link or file location is absent.
+        Linked file entity (URIRef or BNode) and its local path. Returns (None, None) when the link
+        is absent, or (file_id, None) when the linked entity has no location.
+        Callers must unpack the result and check the path, not the tuple's truth value.
 
     Raises:
+        TypeError: when the linked file entity is not a URIRef or BNode
         ValueError: when the linked location cannot resolve to a local file
     """
     file_id = graph.value(node_id, predicate)
-    return get_file_path(graph, file_id) if file_id is not None else None
+    if file_id is None:
+        return None, None
+
+    if not isinstance(file_id, IdentifiedNode):
+        raise TypeError(f"file entity not an IdentifiedNode: {file_id}")
+
+    return file_id, get_file_path(graph, file_id)
 
 
 def add_agent(

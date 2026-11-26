@@ -629,16 +629,30 @@ class ProvTest(unittest.TestCase):
         file_id = add_file_entity(self.graph, root, "robot.xml")
         for predicate in (DCTERMS.source, PROV.wasDerivedFrom):
             with self.subTest(predicate=predicate):
-                self.assertIsNone(get_linked_file_path(self.graph, MODEL, predicate))
+                self.assertEqual(get_linked_file_path(self.graph, MODEL, predicate), (None, None))
                 self.graph.add((MODEL, predicate, SAMPLE))
-                self.assertIsNone(get_linked_file_path(self.graph, MODEL, predicate))
+                self.assertEqual(get_linked_file_path(self.graph, MODEL, predicate), (SAMPLE, None))
                 self.graph.set((MODEL, predicate, file_id))
                 self.assertEqual(
                     get_linked_file_path(self.graph, MODEL, predicate),
-                    Path("/tmp/models/robot.xml"),
+                    (file_id, Path("/tmp/models/robot.xml")),
                 )
         self.graph.set((file_id, PROV.atLocation, URIRef("https://example.org/robot.xml")))
         with self.assertRaises(ValueError):
+            get_linked_file_path(self.graph, MODEL, DCTERMS.source)
+
+    def test_linked_file_path_checks_file_entity_type(self):
+        from rdflib import BNode
+
+        file_id = BNode()
+        self.graph.add((MODEL, DCTERMS.source, file_id))
+        self.graph.add((file_id, PROV.atLocation, URIRef("file:///tmp/robot.xml")))
+        self.assertEqual(
+            get_linked_file_path(self.graph, MODEL, DCTERMS.source),
+            (file_id, Path("/tmp/robot.xml")),
+        )
+        self.graph.set((MODEL, DCTERMS.source, Literal("/tmp/robot.xml")))
+        with self.assertRaisesRegex(TypeError, "IdentifiedNode"):
             get_linked_file_path(self.graph, MODEL, DCTERMS.source)
 
     def test_path_and_root_must_agree(self):
